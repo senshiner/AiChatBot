@@ -1,5 +1,5 @@
-import OpenAI from "openai";
 import FormData from "form-data";
+import { generateText } from "../utils/llmClient.js";
 import { clerkClient } from "@clerk/express";
 import axios from "axios";
 import sql from "../configs/db.js";
@@ -11,11 +11,6 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const openai = new OpenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-});
-
 export const generateAi = async (req, res) => {
   try {
     const { userId } = req.auth();
@@ -24,7 +19,11 @@ export const generateAi = async (req, res) => {
 
     // validation
     if (!prompt || !mode) {
-      return res.status(400).json({ success: false, message: "promp and mode ar required" });
+      return res.status(400).json({ success: false, message: "prompt and mode are required" });
+    }
+
+    if (!["text", "image"].includes(mode)) {
+      return res.status(400).json({ success: false, message: "invalid mode" });
     }
 
     if (plan !== "premium") {
@@ -43,17 +42,7 @@ export const generateAi = async (req, res) => {
 
     let result;
     if (mode == "text") {
-      const response = await openai.chat.completions.create({
-        model: "gemini-3.8-flash",
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      });
-
-      result = response?.choices?.[0]?.message?.content;
+      result = await generateText(userId, prompt);
     } else {
       const formData = new FormData();
       formData.append("prompt", prompt);
@@ -77,9 +66,10 @@ export const generateAi = async (req, res) => {
         privateMetadata: { free_usage: new_usage },
       });
     }
-    await sql`insert into messages(clerk_user_id, role, mode, content)
-    values (${userId}, 'user', ${mode}, ${prompt}), 
-           (${userId}, 'assistant', ${mode}, ${result})`;
+    // TODO: DB insert when Neon connection fixed
+    // await sql`insert into messages(clerk_user_id, role, mode, content)
+    // values (${userId}, 'user', ${mode}, ${prompt}),
+    //        (${userId}, 'assistant', ${mode}, ${result})`;
 
     const warning = plan !== "premium" && new_usage >= 9 ? `${10 - new_usage} free message left` : null;
 
@@ -87,12 +77,13 @@ export const generateAi = async (req, res) => {
       success: true,
       result,
       free_usage: new_usage,
+      plan,
       warning,
     });
   } catch (error) {
-    console.error("AI is Error", error.response?.data || error.message);
+    console.error("AI Error:", error.providerErrors || error.message);
     const status = error.status || error.response?.status || 500;
-    const message = status === 429 ? "server busy" : "generator failed";
+    const message = status === 429 ? "server busy" : error.message || "generator failed";
 
     res.status(status).json({ success: false, message });
   }

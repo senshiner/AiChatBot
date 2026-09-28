@@ -15,7 +15,7 @@ const Hero = () => {
           <p className="text-center text-base max-w-lg mt-2 text-slate-600 dark:text-slate-300">Create Everyting With ChatBot Sendar</p>
 
           <div className="mt-8">
-            <NavLink to="/Chat" className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95 transition  px-7 h-11 rounded-full">
+            <NavLink to="/chat" className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95 transition  px-7 h-11 rounded-full">
               Get started
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M4.166 10h11.667m0 0L9.999 4.165m5.834 5.833-5.834 5.834" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />

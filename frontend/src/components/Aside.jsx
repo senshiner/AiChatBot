@@ -33,7 +33,7 @@ const Aside = ({ onSelectedChat }) => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [getToken]);
 
   const formatLabel = (content) => {
     if (!content) return "Untitled";
@@ -44,7 +44,7 @@ const Aside = ({ onSelectedChat }) => {
     const date = new Date(dateStr);
     if (isNaN(date.getTime())) return "";
 
-    const days = Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000));
+    const days = Math.max(0, Math.floor((new Date().getTime() - date.getTime()) / 86400000));
 
     if (days === 0) return "Today";
     if (days === 1) return "Yesterday";
@@ -67,7 +67,7 @@ const Aside = ({ onSelectedChat }) => {
       {/* new chat */}
       <div className="px-3 pt-2 pb-2 ">
         <button
-          onClick={() => window.location.reload()}
+          onClick={() => window.location.href = window.location.pathname}
           className="w-full bg-indigo-600 flex items-center justify-center rounded-full  px-4 py-2.5 text-white hover:bg-indigo-900 transition-colors hover:cursor-pointer gap-2 font-medium text-xs  "
         >
           <Plus size={14} />

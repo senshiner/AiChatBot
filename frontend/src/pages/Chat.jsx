@@ -7,14 +7,14 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast, Toaster } from "react-hot-toast";
 
-axios.defaults.baseURL = import.meta.env.VITE_BASE_URL;
+// Use project's API URL env variable. frontend/.env defines VITE_API_URL
+axios.defaults.baseURL = import.meta.env.VITE_API_URL;
 
 const Chat = () => {
   const { user } = useUser();
   const { getToken } = useAuth();
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
-  const [selectedItem, setSelectedItem] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [freeUsage, setFreeUsage] = useState(0);
   const [plan, setPlan] = useState("free");
@@ -22,7 +22,7 @@ const Chat = () => {
   const [formData, setFormData] = useState({ prompt: "", mode: "text" });
   const [messages, setMessages] = useState([
     {
-      role: "assistent",
+      role: "assistant",
       content: "Halo, Aku bisa membantumu dengan Pesan atau Gambar",
       mode: "text",
     },
@@ -33,11 +33,10 @@ const Chat = () => {
   }, [messages]);
 
   const handleChatSelection = (item) => {
-    setSelectedItem(item);
     setMessages([
       { role: "user", content: item.content, mode: item.mode },
       {
-        role: "assistent",
+        role: "assistant",
         content: item.result || "no response found",
         mode: item.mode,
       },
@@ -45,10 +44,9 @@ const Chat = () => {
   };
 
   const startNewChat = () => {
-    setSelectedItem(null);
     setMessages([
       {
-        role: "assistent",
+        role: "assistant",
         content: "Halo, Aku bisa membantumu dengan Pesan atau Gambar",
         mode: "text",
       },
@@ -90,7 +88,7 @@ const Chat = () => {
     try {
       const token = await getToken({ skipCache: true });
       const { data } = await axios.post(
-        "api/ai/generate",
+        "/api/ai/generate",
         {
           prompt: currentPrompt,
           mode: currentMode,
@@ -106,7 +104,7 @@ const Chat = () => {
       if (data.success) {
         setMessages((prev) => [
           ...prev,
-          { role: "assistent", content: data.result, mode: currentMode },
+          { role: "assistant", content: data.result, mode: currentMode },
         ]);
         if (data.plan !== "premium") {
           setFreeUsage(data.free_usage);
@@ -122,7 +120,7 @@ const Chat = () => {
               {
                 duration: 5000,
                 style: {
-                  background: "#1818b",
+                  background: "#18181b",
                   color: "#facc15",
                   border: "1px solid #ca8a04",
                 },
@@ -150,7 +148,7 @@ const Chat = () => {
       setMessages((prev) => [
         ...prev,
         {
-          role: "assistent",
+          role: "assistant",
           content: "maaf, ada yang salah tolong cek internet anda",
           mode: "text",
         },
@@ -177,9 +175,9 @@ const Chat = () => {
         position="top-center"
         toastOptions={{
           style: {
-            background: "#1818b",
+            background: "#18181b",
             color: "#e4e4e7",
-            border: "ipx solid #3f3f46",
+            border: "1px solid #3f3f46",
           },
         }}
       />
@@ -272,13 +270,13 @@ const Chat = () => {
                     className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${message.role === "user" ? "bg-indigo-600 text-white rounded-tr-sm" : "bg-slate-200 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 rounded-tl-sm border border-slate-300 dark:border-zinc-700"}`}
                   >
                     {message.mode === "image" &&
-                    message.role === "assistent" ? (
+                    message.role === "assistant" ? (
                       <img
                         src={message.content}
                         className="rounded-xl max-w-full h-auto"
                         alt=""
                       />
-                    ) : message.role === "assistent" ? (
+                    ) : message.role === "assistant" ? (
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
@@ -347,7 +345,7 @@ const Chat = () => {
                             <a
                               href={href}
                               target="_blank"
-                              rel="noopenar noreferrer"
+                              rel="noopener noreferrer"
                               className="text-indigo-400 hover:underline"
                             >
                               {children}{" "}

@@ -1,6 +1,4 @@
 import sql from './configs/db.js';
-import dotenv from 'dotenv';
-dotenv.config();
 
 async function migrate() {
     try {
