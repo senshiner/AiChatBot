@@ -34,6 +34,7 @@ const Footer = () => {
         </div>
 
         <p className="text-center max-w-xl text-sm font-normal leading-relaxed text-slate-600 dark:text-slate-400">Empowering creators worldwide with the most advanced AI content creation tools. Transform your ideas into reality.</p>
+        <p className="text-center max-w-xl text-xs font-normal leading-relaxed text-slate-500 dark:text-slate-500 mt-3">Chat diproses melalui API AI pihak ketiga.</p>
       </div>
       <div className="">
         <div className="max-w-7xl mx-auto px-6 py-6 text-center text-sm font-normal text-slate-600 dark:text-slate-400">

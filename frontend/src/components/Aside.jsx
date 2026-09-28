@@ -1,7 +1,7 @@
 import { ImageIcon, Loader2, LogOut, MessageSquare, Plus } from "lucide-react";
-import { useClerk, useUser, Protect, useAuth } from "@clerk/clerk-react";
+import { useClerk, useUser, useAuth } from "@clerk/clerk-react";
 import ThemeToggle from "./ThemeToggle";
-import axios from "axios";
+import api from "../lib/api";
 import { useEffect, useState } from "react";
 
 const Aside = ({ onSelectedChat }) => {
@@ -17,7 +17,7 @@ const Aside = ({ onSelectedChat }) => {
     const fetchHistory = async () => {
       try {
         const token = await getToken();
-        const { data } = await axios.get("/api/chat/history", {
+        const { data } = await api.get("/api/chat/history", {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (isMounted && data.success) setHistory(data.messages);
@@ -114,9 +114,6 @@ const Aside = ({ onSelectedChat }) => {
             <img src={user.imageUrl} alt="image" className="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-300 dark:border-zinc-700" />
             <div className="flex flex-col min-w-0 flex-1">
               <span className="text-xs font-semibold text-slate-900 dark:text-zinc-200 truncate">{user.fullName}</span>
-              <Protect plan="premium" fallback={<span className="text-[10px] text-slate-500 dark:text-zinc-500">Free Plan</span>}>
-                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">Premium</span>
-              </Protect>
             </div>
             
             <ThemeToggle />

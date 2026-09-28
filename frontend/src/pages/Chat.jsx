@@ -2,13 +2,10 @@ import Aside from "../components/Aside";
 import { SignIn, useUser, useAuth } from "@clerk/clerk-react";
 import { ImageIcon, Plus, Send, Sparkles, Type } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import axios from "axios";
+import api from "../lib/api";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast, Toaster } from "react-hot-toast";
-
-// Use project's API URL env variable. frontend/.env defines VITE_API_URL
-axios.defaults.baseURL = import.meta.env.VITE_API_URL;
 
 const Chat = () => {
   const { user } = useUser();
@@ -16,8 +13,6 @@ const Chat = () => {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [freeUsage, setFreeUsage] = useState(0);
-  const [plan, setPlan] = useState("free");
 
   const [formData, setFormData] = useState({ prompt: "", mode: "text" });
   const [messages, setMessages] = useState([
@@ -87,7 +82,7 @@ const Chat = () => {
 
     try {
       const token = await getToken({ skipCache: true });
-      const { data } = await axios.post(
+      const { data } = await api.post(
         "/api/ai/generate",
         {
           prompt: currentPrompt,
@@ -106,41 +101,12 @@ const Chat = () => {
           ...prev,
           { role: "assistant", content: data.result, mode: currentMode },
         ]);
-        if (data.plan !== "premium") {
-          setFreeUsage(data.free_usage);
-          setPlan(data.plan);
-          const remaining = 10 - data.free_usage;
-          if (remaining <= 0) {
-            toast.error(" kamu telah melewati limit! upgrate ke premium", {
-              duration: 6000,
-            });
-          } else if (remaining <= 2) {
-            toast(
-              `only ${remaining} free usage ${remaining === 1 ? "" : "s"} left`,
-              {
-                duration: 5000,
-                style: {
-                  background: "#18181b",
-                  color: "#facc15",
-                  border: "1px solid #ca8a04",
-                },
-              },
-            );
-          }
-        } else {
-          setPlan("premium");
-        }
       } else {
-        if (data.limit_reached) {
-          toast.error("kamu telah menggunakan 10 pesan ", { duration: 6000 });
-        } else {
-          const msg =
-            data.message?.includes("429") ||
-            data.message?.includes("status code")
-              ? "server AI sedang sibuk tolong coba lagi nanti"
-              : data.message || "AI gagal response";
-          toast.error(msg);
-        }
+        const msg =
+          data.message?.includes("429") || data.message?.includes("status code")
+            ? "server AI sedang sibuk, tolong coba lagi nanti"
+            : data.message || "AI gagal merespons";
+        toast.error(msg);
       }
     } catch (error) {
       console.error("submission error :", error);
@@ -157,9 +123,6 @@ const Chat = () => {
       setIsLoading(false);
     }
   };
-
-  const remaining = 10 - freeUsage;
-  const isLimitReached = plan !== "premium" && remaining <= 0;
 
   if (!user) {
     return (
@@ -217,11 +180,6 @@ const Chat = () => {
                     SENDAR
                   </text>
                 </svg>
-                {plan === "premium" && (
-                  <span className="text-[10px]  bg-indigo-900/50 text-indigo-400  border border-indigo-500/30 px-2 py-0.5 rounded-full font-medium">
-                    Premium
-                  </span>
-                )}
               </div>
             </div>
 
@@ -397,30 +355,6 @@ const Chat = () => {
           {/* input area */}
           <div className="absolute bottom-0  left-0 right-0  px-4 pb-5 pt-3 bg-linear-to-t from-white dark:from-zinc-950 via-white/50 dark:via-zinc-950/50  to-transparent ">
             <div className="max-w-2xl  mx-auto space-y-2">
-              {/* free usage bar */}
-              {plan !== "premium" && freeUsage > 0 && (
-                <div className="flex items-center gap-3 px-1">
-                  <span className="text-[10px]  text-slate-500 dark:text-zinc-500  font-medium whitespace-nowrap">
-                    {freeUsage}/ 10 free usage{" "}
-                  </span>
-                  <div className="flex-1 h-1 bg-slate-200 dark:bg-zinc-800 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${remaining <= 1 ? "bg-red-500" : remaining <= 3 ? "bg-yellow-500" : "bg-indigo-500"}`}
-                      style={{ width: `${(freeUsage / 10) * 100}%` }}
-                    />
-                  </div>
-                  {remaining <= 2 && (
-                    <span
-                      className={`text-[10px] whitespace-nowrap font-medium ${remaining <= 0 ? "text-red-400" : "text-yellow-400 "}`}
-                    >
-                      {remaining <= 0
-                        ? "upgrade to continue"
-                        : `${remaining} left `}
-                    </span>
-                  )}
-                </div>
-              )}
-
               {/* input box */}
               <div className="bg-slate-100 dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 rounded-2xl overflow-hidden focus-within:border-indigo-500 transition-colors">
                 {/* mode input */}
@@ -453,21 +387,17 @@ const Chat = () => {
                     value={formData.prompt}
                     onChange={handleChange}
                     onKeyDown={handleKeyDown}
-                    disabled={isLoading || isLimitReached}
+                    disabled={isLoading}
                     placeholder={
-                      isLimitReached
-                        ? "upgrade to premium to continue"
-                        : formData.mode === "image"
-                          ? "describe image you want"
-                          : "ask me anyting"
+                      formData.mode === "image"
+                        ? "describe image you want"
+                        : "ask me anything"
                     }
                     rows={1}
                     className="flex-1 bg-transparent text-sm text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-600 outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none overflow-y-auto py-1.5 max-h-[150px]"
                   />
                   <button
-                    disabled={
-                      isLoading || !formData.prompt.trim() || isLimitReached
-                    }
+                    disabled={isLoading || !formData.prompt.trim()}
                     className="w-8 h-8 flex items-center justify-center rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-30  disabled:cursor-not-allowed shrink-0"
                   >
                     <Send size={14} />

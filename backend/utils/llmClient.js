@@ -2,20 +2,43 @@ import axios from "axios";
 import OpenAI from "openai";
 import APIs from "../configs/apis.js";
 
+// Per-user sessions for "rest" providers (omegatech-style chat continuity).
 const sessions = new Map();
+const MAX_SESSIONS = 2000;
+
+// Provider health for failover: name -> { fails, cooldownUntil }.
+const health = new Map();
+const MAX_FAILS = 3;
+const COOLDOWN_MS = 5 * 60 * 1000;
+
+// Round-robin cursor: each request starts at the next provider so quota usage
+// spreads across free tiers instead of burning one provider's daily limit.
+let cursor = 0;
+
+const activeProviders = () =>
+  Object.entries(APIs)
+    .filter(([, p]) => p.enabled !== false)
+    .map(([name, p]) => ({ name, ...p }));
 
 const getSession = (userId, providerName) =>
   sessions.get(`${userId}:${providerName}`) || { chatId: "", sessionId: "" };
 
 const saveSession = (userId, providerName, session) => {
+  if (sessions.size >= MAX_SESSIONS) {
+    // Map preserves insertion order: drop the oldest entry.
+    sessions.delete(sessions.keys().next().value);
+  }
   sessions.set(`${userId}:${providerName}`, session);
 };
 
 const callOpenAiCompatible = async (provider, prompt) => {
-  if (!provider.apiKey) throw new Error("provider API key is not configured");
-
-  const client = new OpenAI({ apiKey: provider.apiKey, baseURL: provider.baseURL });
+  const client = new OpenAI({
+    apiKey: provider.apiKey || "unused",
+    baseURL: provider.baseURL,
+    timeout: provider.timeout || 25000,
+  });
   const response = await client.chat.completions.create({
+    model: provider.model,
     messages: [{ role: "user", content: prompt }],
   });
 
@@ -33,7 +56,7 @@ const callRestProvider = async (provider, providerName, userId, prompt) => {
       chatId: session.chatId,
       sessionId: session.sessionId,
     },
-    timeout: 30000,
+    timeout: provider.timeout || 30000,
   });
 
   const result = data?.data?.reply;
@@ -59,16 +82,49 @@ const callProvider = (provider, providerName, userId, prompt) => {
   throw new Error(`unsupported provider type: ${provider.type}`);
 };
 
+const markSuccess = (name) => health.set(name, { fails: 0, cooldownUntil: 0 });
+
+const markFailure = (name) => {
+  const h = health.get(name) || { fails: 0, cooldownUntil: 0 };
+  h.fails += 1;
+  if (h.fails >= MAX_FAILS) h.cooldownUntil = Date.now() + COOLDOWN_MS;
+  health.set(name, h);
+};
+
 export const generateText = async (userId, prompt) => {
-  const providers = Object.entries(APIs);
+  const providers = activeProviders();
+  if (providers.length === 0) throw new Error("no AI providers configured");
+
+  const now = Date.now();
+  const order = [];
   const errors = [];
 
-  for (const [providerName, provider] of providers) {
+  for (let i = 0; i < providers.length; i++) {
+    const p = providers[(cursor + i) % providers.length];
+    const h = health.get(p.name);
+    if (h && h.cooldownUntil > now) {
+      errors.push(`${p.name}: cooling down after repeated failures`);
+      continue;
+    }
+    order.push(p);
+  }
+
+  if (order.length === 0) {
+    const error = new Error("all AI providers are in cooldown");
+    error.providerErrors = errors;
+    throw error;
+  }
+
+  for (const p of order) {
     try {
-      return await callProvider(provider, providerName, userId, prompt);
+      const result = await callProvider(p, p.name, userId, prompt);
+      markSuccess(p.name);
+      cursor = (providers.indexOf(p) + 1) % providers.length;
+      return result;
     } catch (error) {
-      errors.push(`${providerName}: ${error.message}`);
-      console.error(`Provider ${providerName} failed:`, error.message);
+      markFailure(p.name);
+      errors.push(`${p.name}: ${error.message}`);
+      console.error(`Provider ${p.name} failed:`, error.message);
     }
   }
 
@@ -77,10 +133,18 @@ export const generateText = async (userId, prompt) => {
   throw error;
 };
 
-export const resetProviderSessions = (userId) => {
-  for (const providerName of Object.keys(APIs)) {
-    sessions.delete(`${userId}:${providerName}`);
-  }
+// Key-free status snapshot for the /api/ai/providers debug endpoint.
+export const getProvidersStatus = () => {
+  const now = Date.now();
+  return activeProviders().map((p) => {
+    const h = health.get(p.name) || { fails: 0, cooldownUntil: 0 };
+    return {
+      name: p.name,
+      type: p.type,
+      model: p.model || null,
+      keyConfigured: !!p.apiKey && p.apiKey !== "unused",
+      consecutiveFailures: h.fails,
+      inCooldown: h.cooldownUntil > now,
+    };
+  });
 };
-
-export { listApis } from "../configs/apis.js";
