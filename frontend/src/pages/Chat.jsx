@@ -48,6 +48,108 @@ const estimateTokens = (text) => (text ? Math.max(1, Math.ceil(text.length / 4))
 const countWords = (text) => (text.trim() ? text.trim().split(/\s+/).length : 0);
 
 // ---------------------------------------------------------------------------
+// Gimmick "Berpikir keras": HANYA UI, tanpa reasoning model asli (hemat token).
+// Frasa generik yang diketik ala model reasoning lain (ChatGPT/Claude/Gemini).
+// ---------------------------------------------------------------------------
+const THINK_PHRASES = [
+  "Menganalisis maksud pertanyaan...",
+  "Mengurai jadi poin-poin kunci...",
+  "Menimbang beberapa sudut pandang...",
+  "Mengecek konsistensi logika...",
+  "Menyusun jawaban yang runut...",
+  "Memastikan nggak ada yang kelewat...",
+];
+
+function ThinkingBlock({ active, secs, savedText, onDone }) {
+  const [display, setDisplay] = useState("");
+  const [open, setOpen] = useState(false);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+  const finishedRef = useRef(false);
+
+  useEffect(() => {
+    if (!activeRef.current) return; // dari history: langsung tampil, tanpa animasi
+    let phraseIdx = 0;
+    let charIdx = 0;
+    let cancelled = false;
+    let acc = "";
+    let timer;
+    const step = () => {
+      if (cancelled) return;
+      if (!activeRef.current) {
+        if (!finishedRef.current) {
+          finishedRef.current = true;
+          onDoneRef.current(acc);
+        }
+        return;
+      }
+      const phrase = THINK_PHRASES[phraseIdx];
+      if (charIdx < phrase.length) {
+        charIdx++;
+        const head = phraseIdx > 0 ? THINK_PHRASES.slice(0, phraseIdx).join("\n") + "\n" : "";
+        acc = head + phrase.slice(0, charIdx);
+        setDisplay(acc);
+        timer = setTimeout(step, 26);
+      } else {
+        charIdx = 0;
+        phraseIdx++;
+        if (phraseIdx >= THINK_PHRASES.length) {
+          phraseIdx = 0;
+          acc = "";
+          setDisplay("");
+        }
+        timer = setTimeout(step, 650);
+      }
+    };
+    timer = setTimeout(step, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  if (active) {
+    return (
+      <div className="mb-2 rounded-xl border border-violet-500/30 bg-violet-500/5 px-3 py-2">
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-violet-600 dark:text-violet-300">
+          <Brain size={12} className="animate-pulse" />
+          Berpikir
+          <span className="animate-pulse">...</span>
+        </div>
+        <div className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-500 dark:text-zinc-400">
+          {display}
+          <span className="animate-pulse text-violet-500">▍</span>
+        </div>
+      </div>
+    );
+  }
+
+  const text = savedText || display;
+  return (
+    <div className="mb-2 rounded-xl border border-violet-500/30 bg-violet-500/5 px-3 py-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-1.5 text-[11px] font-semibold text-violet-600 dark:text-violet-300"
+      >
+        <Brain size={12} />
+        <span className="flex-1 text-left">
+          Selesai berpikir{secs ? ` dalam ${secs} dtk` : ""}
+        </span>
+        <span aria-hidden>{open ? "▴" : "▾"}</span>
+      </button>
+      {open && text && (
+        <div className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-500 dark:text-zinc-400">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Pewarna sintaks ringan (tanpa dependensi): komentar, string, angka, keyword.
 // ---------------------------------------------------------------------------
 const TOKEN_RE =
@@ -426,7 +528,10 @@ const Chat = () => {
       .join("\n\n");
     const promptForAi = pdfContexts ? `${pdfContexts}\n\n${currentPrompt}` : currentPrompt;
     const imageDataUrls = currentAttachments.filter((a) => a.kind === "image").map((a) => a.dataUrl);
-    const kind = imageDataUrls.length > 0 ? "vision" : currentThink ? "think" : "text";
+    // Gimmick: "berpikir keras" hanya UI thinking, model tetap normal (hemat token).
+    // Backend tidak lagi menerima flag think → tidak pakai reasoning model 120b.
+    const kind = imageDataUrls.length > 0 ? "vision" : "text";
+    const thinkStart = Date.now();
 
     const userMsg = {
       role: "user",
@@ -436,7 +541,28 @@ const Chat = () => {
       think: currentThink,
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    // Ref index pesan AI placeholder (untuk update saat respons tiba).
+    const aiIdxRef = { current: -1 };
+    if (currentThink) {
+      setMessages((prev) => {
+        aiIdxRef.current = prev.length + 1;
+        return [
+          ...prev,
+          userMsg,
+          {
+            role: "assistant",
+            content: "",
+            thinking: true,
+            thinkMode: true,
+            thinkStart,
+            thinkText: "",
+            thinkSecs: null,
+          },
+        ];
+      });
+    } else {
+      setMessages((prev) => [...prev, userMsg]);
+    }
     setFormData({ prompt: "" });
     setAttachments([]);
     if (inputRef.current) {
@@ -471,22 +597,35 @@ const Chat = () => {
         {
           prompt: promptForAi,
           images: imageDataUrls,
-          think: currentThink,
         },
         { headers }
       );
 
       if (data.success) {
+        const secs = ((Date.now() - thinkStart) / 1000).toFixed(1);
         setMessages((prev) => {
-          const next = [
-            ...prev,
-            {
-              role: "assistant",
-              content: data.result,
-              provider: data.provider,
-              model: data.model,
-            },
-          ];
+          const next = currentThink
+            ? prev.map((m, idx) =>
+                idx === aiIdxRef.current
+                  ? {
+                      ...m,
+                      content: data.result,
+                      provider: data.provider,
+                      model: data.model,
+                      thinking: false,
+                      thinkSecs: secs,
+                    }
+                  : m
+              )
+            : [
+                ...prev,
+                {
+                  role: "assistant",
+                  content: data.result,
+                  provider: data.provider,
+                  model: data.model,
+                },
+              ];
           persistCurrentChat(next);
           return next;
         });
@@ -496,18 +635,38 @@ const Chat = () => {
             ? "server AI sedang sibuk, tolong coba lagi nanti"
             : data.message || "AI gagal merespons";
         toast.error(msg);
+        if (currentThink) {
+          const secs = ((Date.now() - thinkStart) / 1000).toFixed(1);
+          setMessages((prev) => {
+            const next = prev.map((m, idx) =>
+              idx === aiIdxRef.current
+                ? { ...m, content: msg, thinking: false, thinkSecs: secs }
+                : m
+            );
+            persistCurrentChat(next);
+            return next;
+          });
+        }
       }
     } catch (error) {
       console.error("submission error :", error);
       toast.error(error?.response?.data?.message || "connection error");
+      const errContent = "maaf, ada yang salah tolong cek internet anda";
       setMessages((prev) => {
-        const next = [
-          ...prev,
-          {
-            role: "assistant",
-            content: "maaf, ada yang salah tolong cek internet anda",
-          },
-        ];
+        const secs = ((Date.now() - thinkStart) / 1000).toFixed(1);
+        const next = currentThink
+          ? prev.map((m, idx) =>
+              idx === aiIdxRef.current
+                ? { ...m, content: errContent, thinking: false, thinkSecs: secs }
+                : m
+            )
+          : [
+              ...prev,
+              {
+                role: "assistant",
+                content: errContent,
+              },
+            ];
         persistCurrentChat(next);
         return next;
       });
@@ -646,7 +805,26 @@ const Chat = () => {
                     {/* header: logo + SENDAR + pill model */}
                     <AiHeader model={message.model} />
 
-                    {/* content */}
+                    {/* gimmick thinking ala model reasoning lain */}
+                    {message.thinkMode && (
+                      <div className="max-w-[85%]">
+                        <ThinkingBlock
+                          active={!!message.thinking}
+                          secs={message.thinkSecs}
+                          savedText={message.thinkText}
+                          onDone={(text) => {
+                            setMessages((prev) =>
+                              prev.map((m, idx) =>
+                                idx === i ? { ...m, thinkText: text } : m
+                              )
+                            );
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* content — disembunyikan saat masih thinking (gimmick) */}
+                    {!message.thinking && (
                     <div className="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-slate-200 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 rounded-tl-sm border border-slate-300 dark:border-zinc-700">
                       <div className="chat-md">
                           <ReactMarkdown
@@ -747,7 +925,8 @@ const Chat = () => {
                           {message.content}
                         </ReactMarkdown>
                       </div>
-                  </div>
+                    </div>
+                    )}
                 </div>
               ))}
 
