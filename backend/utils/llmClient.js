@@ -1,4 +1,5 @@
 import axios from "axios";
+import fs from "fs";
 import OpenAI from "openai";
 import APIs from "../configs/apis.js";
 
@@ -11,14 +12,34 @@ const health = new Map();
 const MAX_FAILS = 3;
 const COOLDOWN_MS = 5 * 60 * 1000;
 
-// Round-robin cursor: each request starts at the next provider so quota usage
-// spreads across free tiers instead of burning one provider's daily limit.
+// Round-robin cursor for non-priority providers: each request starts at the
+// next one so quota usage spreads across free tiers instead of burning one
+// provider's daily limit. Providers with a numeric `priority` are always tried
+// first (lowest number first) on every request and never rotate.
 let cursor = 0;
+
+// Resolve a provider's base URL for this request. `baseURLFile` (a file whose
+// whole content is the URL) is re-read every time so frequently-changing URLs
+// — e.g. an ngrok tunnel address — are picked up without a restart.
+const resolveBaseURL = (p) => {
+  if (p.baseURLFile) {
+    try {
+      const fromFile = fs.readFileSync(p.baseURLFile, "utf8").trim();
+      if (fromFile) return fromFile;
+    } catch {
+      // Fall through to the static baseURL below.
+    }
+  }
+  return p.baseURL || "";
+};
 
 const activeProviders = () =>
   Object.entries(APIs)
     .filter(([, p]) => p.enabled !== false)
-    .map(([name, p]) => ({ name, ...p }));
+    .map(([name, p]) => ({ name, ...p, baseURL: resolveBaseURL(p) }))
+    // A provider without a resolvable URL (e.g. 9Router not configured yet)
+    // is skipped for this request instead of failing.
+    .filter((p) => p.baseURL);
 
 const getSession = (userId, providerName) =>
   sessions.get(`${userId}:${providerName}`) || { chatId: "", sessionId: "" };
@@ -96,11 +117,19 @@ export const generateText = async (userId, prompt) => {
   if (providers.length === 0) throw new Error("no AI providers configured");
 
   const now = Date.now();
+
+  // Priority providers first (fixed order), then the rest in round-robin.
+  const priority = providers
+    .filter((p) => typeof p.priority === "number")
+    .sort((a, b) => a.priority - b.priority);
+  const rest = providers.filter((p) => typeof p.priority !== "number");
+  const rotatedRest = rest.map((_, i) => rest[(cursor + i) % rest.length]);
+  const candidates = [...priority, ...rotatedRest];
+
   const order = [];
   const errors = [];
 
-  for (let i = 0; i < providers.length; i++) {
-    const p = providers[(cursor + i) % providers.length];
+  for (const p of candidates) {
     const h = health.get(p.name);
     if (h && h.cooldownUntil > now) {
       errors.push(`${p.name}: cooling down after repeated failures`);
@@ -119,7 +148,10 @@ export const generateText = async (userId, prompt) => {
     try {
       const result = await callProvider(p, p.name, userId, prompt);
       markSuccess(p.name);
-      cursor = (providers.indexOf(p) + 1) % providers.length;
+      // Advance the round-robin cursor only when a rotating provider served
+      // the request; priority providers never disturb the rotation.
+      const restIdx = rest.indexOf(p);
+      if (restIdx !== -1) cursor = (restIdx + 1) % rest.length;
       return result;
     } catch (error) {
       markFailure(p.name);
@@ -142,6 +174,7 @@ export const getProvidersStatus = () => {
       name: p.name,
       type: p.type,
       model: p.model || null,
+      priority: typeof p.priority === "number" ? p.priority : null,
       keyConfigured: !!p.apiKey && p.apiKey !== "unused",
       consecutiveFailures: h.fails,
       inCooldown: h.cooldownUntil > now,
