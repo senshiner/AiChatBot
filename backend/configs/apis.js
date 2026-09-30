@@ -6,6 +6,17 @@
 //   at startup with a warning when the key is absent.
 // - type "rest": keyless GET {baseURL}/api/ai/chatgpt-v2 (omegatech-style).
 //
+// First-class providers below are configured with <NAME>_BASE_URL /
+// <NAME>_API_KEY / <NAME>_MODEL env vars. For any OTHER OpenAI-compatible API,
+// use the generic CUSTOM_1..CUSTOM_9 slots — no code changes needed:
+//
+//   CUSTOM_1_NAME="my-ai"
+//   CUSTOM_1_BASE_URL="https://my-ai.example.com/v1"
+//   CUSTOM_1_API_KEY="<redacted>"
+//   CUSTOM_1_MODEL="my-model"
+//   CUSTOM_1_PRIORITY="2"        # optional: numeric = tried first every request
+//   CUSTOM_1_TYPE="openai-compatible"  # optional, this is the default
+//
 // Providers are consumed in priority order first (lower `priority` number runs
 // first on every request), then the remaining providers in round-robin order; a
 // failing provider is skipped and put on cooldown after 3 consecutive failures.
@@ -17,12 +28,29 @@
 
 const define = (name, cfg) => [name, { timeout: 25000, enabled: true, ...cfg }];
 
-const APIs = Object.fromEntries([
+const fixedProviders = [
   define("groq", {
     type: "openai-compatible",
     baseURL: process.env.GROQ_BASE_URL || "https://api.groq.com/openai/v1",
     apiKey: process.env.GROQ_API_KEY || null,
     model: process.env.GROQ_MODEL || "openai/gpt-oss-20b",
+  }),
+  define("gemini", {
+    type: "openai-compatible",
+    baseURL:
+      process.env.GEMINI_BASE_URL ||
+      "https://generativelanguage.googleapis.com/v1beta/openai",
+    apiKey: process.env.GEMINI_API_KEY || null,
+    // Verified working 2026-09-30. NOTE: gemini-2.5-flash is retired for new
+    // users (API returns 404 telling you to upgrade).
+    model: process.env.GEMINI_MODEL || "gemini-3-flash-preview",
+  }),
+  define("openrouter", {
+    type: "openai-compatible",
+    baseURL: process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
+    apiKey: process.env.OPENROUTER_API_KEY || null,
+    // Free models use the ":free" suffix, e.g. "deepseek/deepseek-r1:free".
+    model: process.env.OPENROUTER_MODEL || "openai/gpt-oss-120b:free",
   }),
   define("zai", {
     type: "openai-compatible",
@@ -56,7 +84,33 @@ const APIs = Object.fromEntries([
     apiKey: null,
     timeout: 30000,
   }),
-]);
+];
+
+// Generic slots for any other OpenAI-compatible API: name + base URL (+ key +
+// model) purely from env, no code changes. Empty NAME or BASE_URL = slot unused.
+const customProviders = [];
+for (let i = 1; i <= 9; i++) {
+  const rawName = (process.env[`CUSTOM_${i}_NAME`] || "").trim();
+  const baseURL = (process.env[`CUSTOM_${i}_BASE_URL`] || "").trim();
+  if (!rawName || !baseURL) continue;
+  const name = rawName.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+  const prioRaw = (process.env[`CUSTOM_${i}_PRIORITY`] || "").trim();
+  const baseURLFile = (process.env[`CUSTOM_${i}_BASE_URL_FILE`] || "").trim();
+  customProviders.push(
+    define(name, {
+      type: (process.env[`CUSTOM_${i}_TYPE`] || "openai-compatible").trim(),
+      baseURL,
+      ...(baseURLFile ? { baseURLFile } : {}),
+      apiKey: process.env[`CUSTOM_${i}_API_KEY`] || null,
+      model: (process.env[`CUSTOM_${i}_MODEL`] || "").trim(),
+      ...(prioRaw !== "" && !Number.isNaN(Number(prioRaw))
+        ? { priority: Number(prioRaw) }
+        : {}),
+    })
+  );
+}
+
+const APIs = Object.fromEntries([...fixedProviders, ...customProviders]);
 
 for (const [name, p] of Object.entries(APIs)) {
   if (p.type === "openai-compatible" && !p.apiKey) {
