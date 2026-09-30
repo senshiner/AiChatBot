@@ -112,47 +112,50 @@ const markFailure = (name) => {
   health.set(name, h);
 };
 
-export const generateText = async (userId, prompt) => {
+// Candidate order for the next request: priority providers first (fixed
+// order), then the rest in round-robin rotation, skipping providers that are
+// in cooldown after repeated failures. Pure read — no cursor/health changes.
+const planOrder = () => {
   const providers = activeProviders();
-  if (providers.length === 0) throw new Error("no AI providers configured");
-
   const now = Date.now();
 
-  // Priority providers first (fixed order), then the rest in round-robin.
   const priority = providers
     .filter((p) => typeof p.priority === "number")
     .sort((a, b) => a.priority - b.priority);
   const rest = providers.filter((p) => typeof p.priority !== "number");
   const rotatedRest = rest.map((_, i) => rest[(cursor + i) % rest.length]);
-  const candidates = [...priority, ...rotatedRest];
-
-  const order = [];
-  const errors = [];
-
-  for (const p of candidates) {
+  const order = [...priority, ...rotatedRest].filter((p) => {
     const h = health.get(p.name);
-    if (h && h.cooldownUntil > now) {
-      errors.push(`${p.name}: cooling down after repeated failures`);
-      continue;
-    }
-    order.push(p);
-  }
+    return !(h && h.cooldownUntil > now);
+  });
+  return { order, rest };
+};
+
+export const generateTextWithMeta = async (userId, prompt) => {
+  const { order, rest } = planOrder();
 
   if (order.length === 0) {
     const error = new Error("all AI providers are in cooldown");
-    error.providerErrors = errors;
+    error.providerErrors = activeProviders().map((p) => {
+      const h = health.get(p.name);
+      return h && h.cooldownUntil > Date.now()
+        ? `${p.name}: cooling down after repeated failures`
+        : `${p.name}: unavailable`;
+    });
     throw error;
   }
 
+  const errors = [];
+
   for (const p of order) {
     try {
-      const result = await callProvider(p, p.name, userId, prompt);
+      const text = await callProvider(p, p.name, userId, prompt);
       markSuccess(p.name);
       // Advance the round-robin cursor only when a rotating provider served
       // the request; priority providers never disturb the rotation.
       const restIdx = rest.indexOf(p);
       if (restIdx !== -1) cursor = (restIdx + 1) % rest.length;
-      return result;
+      return { text, provider: p.name, model: p.model || null };
     } catch (error) {
       markFailure(p.name);
       errors.push(`${p.name}: ${error.message}`);
@@ -163,6 +166,17 @@ export const generateText = async (userId, prompt) => {
   const error = new Error("all AI providers failed");
   error.providerErrors = errors;
   throw error;
+};
+
+export const generateText = async (userId, prompt) =>
+  (await generateTextWithMeta(userId, prompt)).text;
+
+// Which provider/model would serve the next request, without side effects
+// (no cursor advance, no health changes). Used for the typing indicator.
+export const peekProvider = () => {
+  const { order } = planOrder();
+  const p = order[0];
+  return p ? { provider: p.name, model: p.model || null } : null;
 };
 
 // Key-free status snapshot for the /api/ai/providers debug endpoint.
