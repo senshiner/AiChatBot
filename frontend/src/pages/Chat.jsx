@@ -247,8 +247,10 @@ const Chat = () => {
   const [think, setThink] = useState(false);
   // Lampiran: [{ id, kind: "image"|"pdf", name, dataUrl?, thumb?, pdfText? }]
   const [attachments, setAttachments] = useState([]);
-  // Satu input gambar (tanpa capture) → Android menampilkan popup sistem
-  // (Kamera / Pemilih media / Quick Share) seperti di screenshot.
+  // accept campuran (image + pdf) → Android TIDAK langsung buka galeri,
+  // melainkan menampilkan system chooser (Kamera / Pemilih media / dst)
+  // seperti di ChatGPT. accept murni "image/*" malah langsung ke photo
+  // picker tanpa opsi kamera (perilaku bawaan Chrome).
   const imageRef = useRef(null);
   // Nama akun untuk sapaan (fullName, fallback firstName).
   const displayName = user?.fullName?.trim() || user?.firstName?.trim() || "";
@@ -881,10 +883,8 @@ const Chat = () => {
                 </form>
 
                 {/* hidden file input — visually-hidden (bukan display:none)
-                    agar klik programatik tidak diblokir browser HP.
-                    Tanpa atribut capture → Android menampilkan popup sistem
-                    (Kamera / Pemilih media / Quick Share) di bawah. */}
-                <input ref={imageRef} type="file" accept="image/*" multiple
+                    agar klik programatik tidak diblokir browser HP. */}
+                <input ref={imageRef} type="file" accept="image/*,.pdf" multiple
                   tabIndex={-1} aria-hidden
                   style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
                   onChange={(e) => { handlePickedFiles(e.target.files); e.target.value = ""; }} />
