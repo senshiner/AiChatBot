@@ -124,19 +124,14 @@ const markFailure = (name) => {
 // order), then the rest in round-robin rotation, skipping providers that are
 // in cooldown after repeated failures. Pure read — no cursor/health changes.
 //
-// kind: "text" (default) | "vision" | "think"
-// - "text": provider khusus (role vision/think) tidak ikut.
+// kind: "text" (default) | "vision"
+// - "text": provider khusus (role vision) tidak ikut.
 // - "vision": hanya provider bertanda vision:true.
-// - "think": hanya provider bertanda think:true; kalau kosong, fallback ke "text".
 const planOrder = (kind = "text") => {
   const now = Date.now();
   let providers = activeProviders();
   if (kind === "vision") {
     providers = providers.filter((p) => p.vision === true);
-  } else if (kind === "think") {
-    const thinkers = providers.filter((p) => p.think === true);
-    if (thinkers.length > 0) providers = thinkers;
-    // else: fallback ke provider teks biasa di bawah
   } else {
     providers = providers.filter((p) => !p.role);
   }
@@ -154,7 +149,8 @@ const planOrder = (kind = "text") => {
 };
 
 export const generateTextWithMeta = async (userId, prompt, opts = {}) => {
-  const kind = opts.images && opts.images.length > 0 ? "vision" : opts.think ? "think" : "text";
+  // "think" sudah jadi gimmick UI di frontend — backend selalu pakai provider normal.
+  const kind = opts.images && opts.images.length > 0 ? "vision" : "text";
   const { order, rest } = planOrder(kind);
 
   if (order.length === 0) {

@@ -17,3 +17,20 @@ export const rateLimit = (req, res, next) => {
   }
   next();
 };
+
+// Strict limiter untuk endpoint berkuota bayar/terbatas (mis. Sightengine:
+// tiap hit ≈ 5 ops dari jatah gratis 2000/bln). 10/menit/user cukup untuk
+// pemakaian wajar tapi bikin abuse mahal.
+const strictHits = new Map();
+const STRICT_MAX_HITS = 10;
+setInterval(() => strictHits.clear(), WINDOW_MS).unref();
+
+export const strictRateLimit = (req, res, next) => {
+  const key = req.userId || req.ip;
+  const count = (strictHits.get(key) || 0) + 1;
+  strictHits.set(key, count);
+  if (count > STRICT_MAX_HITS) {
+    return res.status(429).json({ success: false, message: "detection rate limited, try again later" });
+  }
+  next();
+};

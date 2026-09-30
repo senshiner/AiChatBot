@@ -244,7 +244,7 @@ function DetectPanel({
                 </button>
                 <button
                   type="button"
-                  onClick={onChangeImage}
+                  onClick={() => inputRef.current?.click()}
                   disabled={loading}
                   className="px-4 py-3 rounded-xl border border-slate-300 dark:border-zinc-700 text-sm font-medium text-slate-600 dark:text-zinc-300 disabled:opacity-50"
                 >
@@ -382,7 +382,7 @@ function CodeBlock({ language, code }) {
       {canPreview && tab === "preview" ? (
         <iframe
           title="preview"
-          sandbox="allow-scripts"
+          sandbox=""
           srcDoc={code}
           className="w-full h-64 bg-white"
         />
@@ -466,7 +466,7 @@ const Chat = () => {
   const [pendingModel, setPendingModel] = useState(null);
 
   const [formData, setFormData] = useState({ prompt: "" });
-  // "Berpikir keras": pakai model reasoning khusus.
+  // "Berpikir keras": gimmick UI saja, tanpa reasoning model (disengaja — hemat token).
   const [think, setThink] = useState(false);
   // Mode "Deteksi AI": deteksi gambar AI-generated via Sightengine.
   const [detectMode, setDetectMode] = useState(false);
@@ -709,7 +709,15 @@ const Chat = () => {
       .filter((a) => a.kind === "pdf")
       .map((a) => `[Lampiran PDF "${a.name}"]:\n${a.pdfText}`)
       .join("\n\n");
-    const promptForAi = pdfContexts ? `${pdfContexts}\n\n${currentPrompt}` : currentPrompt;
+    const promptForAi0 = pdfContexts ? `${pdfContexts}\n\n${currentPrompt}` : currentPrompt;
+    // Samakan batas backend (8000 char): konteks PDF dipotong duluan, prompt user diutamakan utuh.
+    const MAX_PROMPT = 8000;
+    const promptForAi =
+      promptForAi0.length > MAX_PROMPT
+        ? pdfContexts
+          ? `${pdfContexts.slice(0, Math.max(0, MAX_PROMPT - currentPrompt.length - 64))}\n\n[...konteks PDF dipotong agar muat...]\n\n${currentPrompt}`
+          : currentPrompt.slice(0, MAX_PROMPT)
+        : promptForAi0;
     const imageDataUrls = currentAttachments.filter((a) => a.kind === "image").map((a) => a.dataUrl);
     // Gimmick: "berpikir keras" hanya UI thinking, model tetap normal (hemat token).
     // Backend tidak lagi menerima flag think → tidak pakai reasoning model 120b.
@@ -949,7 +957,7 @@ const Chat = () => {
                 }`}
               >
                 <Sparkles size={13} />
-                <span className="hidden sm:inline">Deteksi AI</span>
+                <span>Deteksi AI</span>
               </button>
               <button
                 onClick={startNewChat}
