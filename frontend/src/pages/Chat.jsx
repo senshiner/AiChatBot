@@ -807,7 +807,7 @@ const Chat = () => {
 
                     {/* gimmick thinking ala model reasoning lain */}
                     {message.thinkMode && (
-                      <div className="max-w-[85%]">
+                      <div className="max-w-full">
                         <ThinkingBlock
                           active={!!message.thinking}
                           secs={message.thinkSecs}
@@ -825,7 +825,7 @@ const Chat = () => {
 
                     {/* content — disembunyikan saat masih thinking (gimmick) */}
                     {!message.thinking && (
-                    <div className="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-slate-200 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 rounded-tl-sm border border-slate-300 dark:border-zinc-700">
+                    <div className="max-w-full rounded-2xl px-4 py-3 text-sm leading-relaxed bg-slate-200 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 rounded-tl-sm border border-slate-300 dark:border-zinc-700">
                       <div className="chat-md">
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
