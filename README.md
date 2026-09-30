@@ -88,7 +88,6 @@ npm run dev           # buka http://localhost:5173
   AI-generated via Sightengine (rate limit 10/menit/user).
 - **Lampiran** — gambar (max 4 MB/file, max 4 gambar, auto-resize) & PDF
   (ekstrak teks max 20 halaman).
-- **Berpikir keras** — gimmick UI thinking (tanpa reasoning model, hemat token).
 - **Riwayat lokal** — tersimpan per browser (localStorage, max 100 chat).
 - **Voice input** — via Web Speech API (Chrome).
 
