@@ -895,12 +895,19 @@ const Chat = () => {
                   </button>
                 </form>
 
-                {/* hidden file inputs */}
-                <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden"
+                {/* hidden file inputs — visually-hidden (bukan display:none)
+                    agar klik programatik tidak diblokir browser HP */}
+                <input ref={cameraRef} type="file" accept="image/*" capture="environment"
+                  tabIndex={-1} aria-hidden
+                  style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
                   onChange={(e) => { handlePickedFiles(e.target.files); e.target.value = ""; }} />
-                <input ref={photoRef} type="file" accept="image/*" multiple className="hidden"
+                <input ref={photoRef} type="file" accept="image/*" multiple
+                  tabIndex={-1} aria-hidden
+                  style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
                   onChange={(e) => { handlePickedFiles(e.target.files); e.target.value = ""; }} />
-                <input ref={fileRef} type="file" accept="image/*,.pdf,application/pdf" multiple className="hidden"
+                <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf" multiple
+                  tabIndex={-1} aria-hidden
+                  style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
                   onChange={(e) => { handlePickedFiles(e.target.files); e.target.value = ""; }} />
               </div>
 
