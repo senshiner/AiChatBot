@@ -1,5 +1,5 @@
 import express from "express";
-import { generateAi } from "../controllers/aiController.js";
+import { generateAi, detectAiImage } from "../controllers/aiController.js";
 import { getProvidersStatus, peekProvider } from "../utils/llmClient.js";
 import { auth } from "../middlewares/auth.js";
 import { rateLimit } from "../middlewares/rateLimit.js";
@@ -7,6 +7,9 @@ import { rateLimit } from "../middlewares/rateLimit.js";
 const aiRouter = express.Router();
 
 aiRouter.post("/generate", auth, rateLimit, generateAi);
+
+// Deteksi AI-generated image via Sightengine (tanpa token LLM).
+aiRouter.post("/detect", auth, rateLimit, detectAiImage);
 
 // Which provider/model would serve the next request (no side effects).
 // The frontend uses this for the typing indicator ("model yang sedang typing").

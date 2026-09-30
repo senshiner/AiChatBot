@@ -8,10 +8,13 @@ import {
   Code2,
   FileUp,
   ImagePlus,
+  Loader2,
   Menu,
   Mic,
   Plus,
+  ScanSearch,
   Send,
+  Sparkles,
   X,
   Zap,
 } from "lucide-react";
@@ -145,6 +148,124 @@ function ThinkingBlock({ active, secs, savedText, onDone }) {
           {text}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Mode "Deteksi AI": cek apakah sebuah gambar hasil AI-generated via Sightengine.
+// Kolom chat bersih — hanya empty state / preview / hasil.
+// ---------------------------------------------------------------------------
+function DetectResultCard({ score, onReset }) {
+  const verdict =
+    score >= 70
+      ? { label: "Kemungkinan besar AI-generated", cls: "text-red-600 dark:text-red-400", bar: "bg-red-500" }
+      : score >= 40
+        ? { label: "Meragukan", cls: "text-amber-600 dark:text-amber-400", bar: "bg-amber-500" }
+        : { label: "Kemungkinan besar foto asli", cls: "text-green-600 dark:text-green-400", bar: "bg-green-500" };
+  return (
+    <div className="rounded-3xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 flex flex-col items-center gap-3 text-center">
+      <div className="text-5xl font-bold text-slate-900 dark:text-white tabular-nums">
+        {score}<span className="text-2xl">%</span>
+      </div>
+      <p className="text-xs uppercase tracking-widest text-slate-500 dark:text-zinc-500">
+        kemungkinan AI-generated
+      </p>
+      <div className="w-full h-2.5 rounded-full bg-slate-200 dark:bg-zinc-800 overflow-hidden">
+        <div className={`h-full rounded-full ${verdict.bar}`} style={{ width: `${score}%` }} />
+      </div>
+      <p className={`font-semibold ${verdict.cls}`}>{verdict.label}</p>
+      <p className="text-[11px] text-slate-500 dark:text-zinc-500">
+        Hasil estimasi, bukan vonis mutlak.
+      </p>
+      <button
+        type="button"
+        onClick={onReset}
+        className="mt-1 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors"
+      >
+        Cek gambar lain
+      </button>
+    </div>
+  );
+}
+
+function DetectPanel({
+  image, loading, result, error,
+  onPick, onDetect, onReset, onChangeImage, inputRef,
+}) {
+  return (
+    <div className="flex-1 overflow-y-auto px-4 py-6">
+      <div className="max-w-2xl mx-auto space-y-4 pb-40">
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-zinc-300">
+          <Sparkles size={16} className="text-indigo-500" />
+          Deteksi AI
+        </div>
+
+        {!image ? (
+          <button
+            type="button"
+            onClick={onPick}
+            className="w-full rounded-3xl border-2 border-dashed border-slate-300 dark:border-zinc-700 hover:border-indigo-500 dark:hover:border-indigo-500 transition-colors p-10 flex flex-col items-center gap-4 bg-white dark:bg-zinc-900"
+          >
+            <div className="w-20 h-20 rounded-2xl bg-indigo-500/10 flex items-center justify-center">
+              <ScanSearch size={40} className="text-indigo-500" />
+            </div>
+            <div className="text-center">
+              <p className="font-semibold text-slate-800 dark:text-zinc-200">
+                Ketuk untuk memilih gambar
+              </p>
+              <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1">
+                Deteksi apakah gambar dibuat oleh AI
+              </p>
+            </div>
+          </button>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-3xl overflow-hidden border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+              <img src={image} alt="Gambar yang dideteksi" className="w-full max-h-96 object-contain bg-slate-100 dark:bg-zinc-950" />
+            </div>
+
+            {error && (
+              <p className="text-sm text-red-600 dark:text-red-400 text-center">{error}</p>
+            )}
+
+            {result ? (
+              <DetectResultCard score={result.score} onReset={onReset} />
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={onDetect}
+                  disabled={loading}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+                >
+                  {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                  {loading ? "Menganalisis..." : "Deteksi Sekarang"}
+                </button>
+                <button
+                  type="button"
+                  onClick={onChangeImage}
+                  disabled={loading}
+                  className="px-4 py-3 rounded-xl border border-slate-300 dark:border-zinc-700 text-sm font-medium text-slate-600 dark:text-zinc-300 disabled:opacity-50"
+                >
+                  Ganti
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* input gambar khusus mode deteksi */}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        tabIndex={-1}
+        aria-hidden
+        style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+        onChange={(e) => { onChangeImage(e.target.files); e.target.value = ""; }}
+      />
     </div>
   );
 }
@@ -347,6 +468,13 @@ const Chat = () => {
   const [formData, setFormData] = useState({ prompt: "" });
   // "Berpikir keras": pakai model reasoning khusus.
   const [think, setThink] = useState(false);
+  // Mode "Deteksi AI": deteksi gambar AI-generated via Sightengine.
+  const [detectMode, setDetectMode] = useState(false);
+  const [detectImage, setDetectImage] = useState(null);
+  const [detectLoading, setDetectLoading] = useState(false);
+  const [detectResult, setDetectResult] = useState(null);
+  const [detectError, setDetectError] = useState(null);
+  const detectInputRef = useRef(null);
   // Lampiran: [{ id, kind: "image"|"pdf", name, dataUrl?, thumb?, pdfText? }]
   const [attachments, setAttachments] = useState([]);
   // accept campuran (image + pdf) → Android TIDAK langsung buka galeri,
@@ -411,7 +539,62 @@ const Chat = () => {
     setFormData({ prompt: "" });
     setAttachments([]);
     setMenuOpen(false);
+    setDetectMode(false);
+    resetDetect();
     inputRef.current?.focus();
+  };
+
+  // ---------- Mode Deteksi AI ----------
+  const resetDetect = () => {
+    setDetectImage(null);
+    setDetectLoading(false);
+    setDetectResult(null);
+    setDetectError(null);
+  };
+
+  const handleDetectPick = async (files) => {
+    const file = files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Pilih file gambar");
+      return;
+    }
+    if (!isWithinLimit(file, MAX_FILE_MB)) {
+      toast.error(`Maksimal ${MAX_FILE_MB} MB per gambar`);
+      return;
+    }
+    try {
+      const dataUrl = await readAsDataUrl(file);
+      const small = await downscaleImage(dataUrl, 1024, 0.85);
+      setDetectImage(small);
+      setDetectResult(null);
+      setDetectError(null);
+    } catch {
+      toast.error("Gagal membaca gambar");
+    }
+  };
+
+  const runDetection = async () => {
+    if (!detectImage || detectLoading) return;
+    setDetectLoading(true);
+    setDetectError(null);
+    try {
+      const token = await getToken({ skipCache: true });
+      const { data } = await api.post(
+        "/api/ai/detect",
+        { image: detectImage },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (data.success) {
+        setDetectResult({ score: data.score });
+      } else {
+        setDetectError(data.message || "Deteksi gagal");
+      }
+    } catch (e) {
+      setDetectError(e?.response?.data?.message || "Deteksi gagal, coba lagi");
+    } finally {
+      setDetectLoading(false);
+    }
   };
 
   const removeAttachment = (id) =>
@@ -755,15 +938,42 @@ const Chat = () => {
               </div>
             </div>
 
-            <button
-              onClick={startNewChat}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-zinc-900 text-xs font-medium transition-colors"
-            >
-              <Plus size={13} /> New Chat
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setDetectMode((v) => !v)}
+                aria-label="Deteksi AI"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  detectMode
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-800"
+                }`}
+              >
+                <Sparkles size={13} />
+                <span className="hidden sm:inline">Deteksi AI</span>
+              </button>
+              <button
+                onClick={startNewChat}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-zinc-900 text-xs font-medium transition-colors"
+              >
+                <Plus size={13} /> New Chat
+              </button>
+            </div>
           </section>
 
-          {/* message */}
+          {/* message / mode deteksi AI */}
+          {detectMode ? (
+            <DetectPanel
+              image={detectImage}
+              loading={detectLoading}
+              result={detectResult}
+              error={detectError}
+              onPick={() => detectInputRef.current?.click()}
+              onDetect={runDetection}
+              onReset={resetDetect}
+              onChangeImage={handleDetectPick}
+              inputRef={detectInputRef}
+            />
+          ) : (
           <div className="flex-1  overflow-y-auto  px-4 py-6 ">
             <div className="max-w-2xl mx-auto space-y-6 pb-40">
               {messages.map((message, i) =>
@@ -936,8 +1146,10 @@ const Chat = () => {
               <div ref={messagesEndRef} />
             </div>
           </div>
+          )}
 
-          {/* input area */}
+          {/* input area — disembunyikan di mode deteksi */}
+          {!detectMode && (
           <div className="absolute bottom-0 left-0 right-0 px-4 pb-5 pt-3 bg-linear-to-t from-white dark:from-zinc-950 via-white/50 dark:via-zinc-950/50 to-transparent">
             <div className="max-w-2xl mx-auto space-y-2">
               {/* input box ala referensi */}
@@ -1074,6 +1286,7 @@ const Chat = () => {
               </p>
             </div>
           </div>
+          )}
         </main>
       </div>
     </>

@@ -24,6 +24,57 @@ const isImageDataUrl = (s) =>
   /^data:image\/(png|jpe?g|webp|gif);base64,/.test(s) &&
   s.length <= MAX_IMAGE_DATAURL_LENGTH;
 
+// ---------------------------------------------------------------------------
+// Deteksi AI-generated image via Sightengine (free tier, tanpa makan token LLM).
+// POST /api/ai/detect  body: { image: "data:image/...;base64,..." }
+// ---------------------------------------------------------------------------
+export const detectAiImage = async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!isImageDataUrl(image)) {
+      return res.status(400).json({ success: false, message: "invalid image data" });
+    }
+
+    const apiUser = process.env.SIGHTENGINE_API_USER;
+    const apiSecret = process.env.SIGHTENGINE_API_SECRET;
+    if (!apiUser || !apiSecret) {
+      return res.status(500).json({ success: false, message: "detector not configured" });
+    }
+
+    const mime = image.match(/^data:(image\/[a-z+]+);base64,/)[1];
+    const buffer = Buffer.from(image.split(",")[1], "base64");
+
+    const form = new FormData();
+    form.append("api_user", apiUser);
+    form.append("api_secret", apiSecret);
+    form.append("models", process.env.SIGHTENGINE_MODELS || "genai");
+    form.append("media", new Blob([buffer], { type: mime }), "image.jpg");
+
+    const resp = await fetch("https://api.sightengine.com/1.0/check.json", {
+      method: "POST",
+      body: form,
+    });
+    const data = await resp.json().catch(() => null);
+    if (!data || data.status !== "success") {
+      console.error("Sightengine error:", data?.error || resp.status);
+      return res
+        .status(502)
+        .json({ success: false, message: data?.error?.message || "detector failed" });
+    }
+
+    const raw = data?.type?.ai_generated ?? data?.ai_generated ?? null;
+    if (typeof raw !== "number") {
+      console.error("Sightengine unexpected response:", JSON.stringify(data).slice(0, 200));
+      return res.status(502).json({ success: false, message: "unexpected detector response" });
+    }
+
+    return res.json({ success: true, score: Math.round(raw * 100) });
+  } catch (error) {
+    console.error("Detect AI error:", error.message);
+    return res.status(500).json({ success: false, message: "detection failed" });
+  }
+};
+
 export const generateAi = async (req, res) => {
   try {
     const userId = req.userId;
