@@ -2,7 +2,6 @@ import Aside from "../components/Aside";
 import { SignIn, useUser, useAuth } from "@clerk/clerk-react";
 import {
   Brain,
-  Camera,
   Check,
   Copy,
   Eye,
@@ -248,9 +247,9 @@ const Chat = () => {
   const [think, setThink] = useState(false);
   // Lampiran: [{ id, kind: "image"|"pdf", name, dataUrl?, thumb?, pdfText? }]
   const [attachments, setAttachments] = useState([]);
-  const cameraRef = useRef(null);
-  const photoRef = useRef(null);
-  const fileRef = useRef(null);
+  // Satu input gambar (tanpa capture) → Android menampilkan popup sistem
+  // (Kamera / Pemilih media / Quick Share) seperti di screenshot.
+  const imageRef = useRef(null);
   // Nama akun untuk sapaan (fullName, fallback firstName).
   const displayName = user?.fullName?.trim() || user?.firstName?.trim() || "";
   const [messages, setMessages] = useState(() => [greetingFor(displayName)]);
@@ -831,24 +830,10 @@ const Chat = () => {
                       <div className="absolute bottom-11 left-0 w-48 rounded-xl border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl py-1 z-20">
                         <button
                           type="button"
-                          onClick={() => cameraRef.current?.click()}
+                          onClick={() => { imageRef.current?.click(); setMenuOpen(false); }}
                           className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
                         >
-                          <Camera size={14} /> Kamera
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => photoRef.current?.click()}
-                          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
-                        >
-                          <ImagePlus size={14} /> Foto
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => fileRef.current?.click()}
-                          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
-                        >
-                          <FileUp size={14} /> File
+                          <ImagePlus size={14} /> Gambar
                         </button>
                         <div className="mx-3 my-1 border-t border-slate-200 dark:border-zinc-800" />
                         <button
@@ -895,17 +880,11 @@ const Chat = () => {
                   </button>
                 </form>
 
-                {/* hidden file inputs — visually-hidden (bukan display:none)
-                    agar klik programatik tidak diblokir browser HP */}
-                <input ref={cameraRef} type="file" accept="image/*" capture="environment"
-                  tabIndex={-1} aria-hidden
-                  style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
-                  onChange={(e) => { handlePickedFiles(e.target.files); e.target.value = ""; }} />
-                <input ref={photoRef} type="file" accept="image/*" multiple
-                  tabIndex={-1} aria-hidden
-                  style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
-                  onChange={(e) => { handlePickedFiles(e.target.files); e.target.value = ""; }} />
-                <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf" multiple
+                {/* hidden file input — visually-hidden (bukan display:none)
+                    agar klik programatik tidak diblokir browser HP.
+                    Tanpa atribut capture → Android menampilkan popup sistem
+                    (Kamera / Pemilih media / Quick Share) di bawah. */}
+                <input ref={imageRef} type="file" accept="image/*" multiple
                   tabIndex={-1} aria-hidden
                   style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
                   onChange={(e) => { handlePickedFiles(e.target.files); e.target.value = ""; }} />
