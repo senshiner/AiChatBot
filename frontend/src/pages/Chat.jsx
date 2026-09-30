@@ -10,7 +10,6 @@ import {
   Mic,
   Plus,
   Send,
-  Sparkles,
   Type,
   Eraser,
   ClipboardCopy,
@@ -168,6 +167,53 @@ function CodeBlock({ language, code }) {
 }
 
 // ---------------------------------------------------------------------------
+// Logo Sendar (mark geometris) + pill nama model + indikator typing
+// ala referensi: logo | SENDAR | [model] lalu bubble "Memproses respon...".
+// ---------------------------------------------------------------------------
+const SendarMark = ({ size = 14 }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 55 86"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path
+      d="m11.896 85.203 4.879-28.693 24.182-24.286 11.895 11.843zM43.104 0l-4.879 28.693-24.182 24.286L2.148 41.136z"
+      fill="currentColor"
+    />
+  </svg>
+);
+
+const AiHeader = ({ model }) => (
+  <div className="flex items-center gap-2">
+    <div className="w-7 h-7 rounded-lg border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+      <SendarMark size={14} />
+    </div>
+    <span className="text-sm font-bold text-slate-900 dark:text-white tracking-wide">
+      SENDAR
+    </span>
+    {model && (
+      <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-sky-100 dark:bg-sky-900/50 text-sky-600 dark:text-sky-300 whitespace-nowrap overflow-hidden text-ellipsis max-w-[220px]">
+        {model}
+      </span>
+    )}
+  </div>
+);
+
+const TypingIndicator = ({ model }) => (
+  <div className="flex flex-col gap-2">
+    <AiHeader model={model} />
+    <div className="max-w-[85%] w-fit rounded-2xl px-4 py-3 bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800/60 flex items-center gap-2.5">
+      <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse shrink-0" />
+      <span className="text-sm text-sky-600 dark:text-sky-300">
+        ⚡ Memproses respon...
+      </span>
+    </div>
+  </div>
+);
+
+// ---------------------------------------------------------------------------
 // Halaman Chat
 // ---------------------------------------------------------------------------
 const Chat = () => {
@@ -181,6 +227,8 @@ const Chat = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [listening, setListening] = useState(false);
+  // Model yang sedang dipakai untuk request berjalan (indikator typing).
+  const [pendingModel, setPendingModel] = useState(null);
 
   const [formData, setFormData] = useState({ prompt: "", mode: "text" });
   const [messages, setMessages] = useState(() => [greetingFor(user?.firstName)]);
@@ -289,24 +337,45 @@ const Chat = () => {
 
     try {
       const token = await getToken({ skipCache: true });
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      };
+
+      // Cari tahu model yang akan melayani request ini (untuk indikator typing).
+      try {
+        const { data: preview } = await api.get("/api/ai/provider-preview", {
+          headers,
+        });
+        if (preview.success) {
+          setPendingModel({
+            provider: preview.provider,
+            model: preview.model,
+          });
+        }
+      } catch {
+        // Abaikan — request utama tetap jalan walau preview gagal.
+      }
+
       const { data } = await api.post(
         "/api/ai/generate",
         {
           prompt: currentPrompt,
           mode: currentMode,
         },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        },
+        { headers }
       );
 
       if (data.success) {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: data.result, mode: currentMode },
+          {
+            role: "assistant",
+            content: data.result,
+            mode: currentMode,
+            provider: data.provider,
+            model: data.model,
+          },
         ]);
       } else {
         const msg =
@@ -328,6 +397,7 @@ const Chat = () => {
       ]);
     } finally {
       setIsLoading(false);
+      setPendingModel(null);
     }
   };
 
@@ -418,56 +488,44 @@ const Chat = () => {
           {/* message */}
           <div className="flex-1  overflow-y-auto  px-4 py-6 ">
             <div className="max-w-2xl mx-auto space-y-6 pb-40">
-              {messages.map((message, i) => (
-                <div
-                  key={i}
-                  className={`flex gap-3 ${message.role === "user" ? "flex-row-reverse" : "flex-row"}`}
-                >
-                  {/* avatar */}
-                  {message.role === "user" ? (
+              {messages.map((message, i) =>
+                message.role === "user" ? (
+                  <div key={i} className="flex gap-3 flex-row-reverse">
+                    {/* avatar */}
                     <img
                       src={user.imageUrl}
                       alt="image"
                       className="w-8 h-8  rounded-full  border border-slate-300 dark:border-zinc-700 shrink-0 object-cover"
                     />
-                  ) : (
-                    <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center ">
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 55 86"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg"
-                      >
-                        <path
-                          d="m11.896 85.203 4.879-28.693 24.182-24.286 11.895 11.843zM43.104 0l-4.879 28.693-24.182 24.286L2.148 41.136z"
-                          fill="currentColor"
-                        />
-                      </svg>
-                    </div>
-                  )}
 
-                  {/* content */}
-                  <div
-                    className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${message.role === "user" ? "bg-indigo-600 text-white rounded-tr-sm" : "bg-slate-200 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 rounded-tl-sm border border-slate-300 dark:border-zinc-700"}`}
-                  >
-                    {message.mode === "image" &&
-                    message.role === "assistant" ? (
-                      <img
-                        src={message.content}
-                        className="rounded-xl max-w-full h-auto"
-                        alt=""
-                      />
-                    ) : message.role === "assistant" ? (
-                      <div className="chat-md">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            h1: ({ children }) => (
-                              <h1 className="text-base font-bold text-slate-900 dark:text-white mt-3 mb-1">
-                                {children}
-                              </h1>
-                            ),
+                    {/* content */}
+                    <div className="max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-indigo-600 text-white rounded-tr-sm whitespace-pre-wrap break-words">
+                      {message.content}
+                    </div>
+                  </div>
+                ) : (
+                  <div key={i} className="flex flex-col gap-2">
+                    {/* header: logo + SENDAR + pill model */}
+                    <AiHeader model={message.model} />
+
+                    {/* content */}
+                    <div className="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-slate-200 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 rounded-tl-sm border border-slate-300 dark:border-zinc-700">
+                      {message.mode === "image" ? (
+                        <img
+                          src={message.content}
+                          className="rounded-xl max-w-full h-auto"
+                          alt=""
+                        />
+                      ) : (
+                        <div className="chat-md">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              h1: ({ children }) => (
+                                <h1 className="text-base font-bold text-slate-900 dark:text-white mt-3 mb-1">
+                                  {children}
+                                </h1>
+                              ),
                             h2: ({ children }) => (
                               <h2 className="text-sm font-bold text-slate-900 dark:text-white mt-2 mb-1">
                                 {children}
@@ -558,40 +616,13 @@ const Chat = () => {
                           {message.content}
                         </ReactMarkdown>
                       </div>
-                    ) : (
-                      <p className="whitespace-pre-wrap break-words">
-                        {message.content}
-                      </p>
                     )}
                   </div>
                 </div>
               ))}
 
-              {/* loading dots */}
-              {isLoading && (
-                <div className="flex gap-3 items-center">
-                  <div className="w-8 h-8 flex items-center justify-center rounded-lg shrink-0 bg-indigo-600">
-                    <Sparkles
-                      size={14}
-                      className="text-slate-900 dark:text-white"
-                    />
-                  </div>
-                  <div className="bg-slate-200 dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-1.5">
-                    <span
-                      className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce"
-                      style={{ animationDelay: "0ms" }}
-                    ></span>
-                    <span
-                      className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce"
-                      style={{ animationDelay: "150ms" }}
-                    ></span>
-                    <span
-                      className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce"
-                      style={{ animationDelay: "300ms" }}
-                    ></span>
-                  </div>
-                </div>
-              )}
+              {/* indikator typing ala referensi */}
+              {isLoading && <TypingIndicator model={pendingModel?.model} />}
 
               <div ref={messagesEndRef} />
             </div>

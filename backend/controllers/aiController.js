@@ -1,5 +1,5 @@
 import FormData from "form-data";
-import { generateText } from "../utils/llmClient.js";
+import { generateTextWithMeta } from "../utils/llmClient.js";
 import axios from "axios";
 import sql from "../configs/db.js";
 import { v2 as cloudinary } from "cloudinary";
@@ -44,8 +44,13 @@ export const generateAi = async (req, res) => {
     }
 
     let result;
+    let provider = null;
+    let model = null;
     if (mode === "text") {
-      result = await generateText(userId, prompt);
+      const meta = await generateTextWithMeta(userId, prompt);
+      result = meta.text;
+      provider = meta.provider;
+      model = meta.model;
     } else {
       const formData = new FormData();
       formData.append("prompt", prompt);
@@ -68,11 +73,12 @@ export const generateAi = async (req, res) => {
 
       // uploading buffer into cloudinary
       result = uploadResponse.secure_url;
+      provider = "clipdrop";
     }
 
     saveMessage(userId, mode, prompt, result);
 
-    return res.json({ success: true, result });
+    return res.json({ success: true, result, provider, model });
   } catch (error) {
     console.error("AI Error:", error.providerErrors || error.message);
     const status = error.status || error.response?.status || 500;
