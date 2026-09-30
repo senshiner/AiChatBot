@@ -1,89 +1,115 @@
-import FormData from "form-data";
-import { generateText } from "../utils/llmClient.js";
-import { clerkClient } from "@clerk/express";
-import axios from "axios";
+import { generateTextWithMeta } from "../utils/llmClient.js";
 import sql from "../configs/db.js";
-import { v2 as cloudinary } from "cloudinary";
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+const MAX_PROMPT_LENGTH = 8000;
+const MAX_IMAGES = 4;
+// Data URL gambar hasil resize client (batas kecil); tolak yang kelewat besar.
+const MAX_IMAGE_DATAURL_LENGTH = 6_000_000;
+
+// Best-effort history persistence. Never fails the request: if the DB is not
+// configured or the insert fails, generation still succeeds.
+const saveMessage = async (userId, prompt, result) => {
+  if (!sql) return;
+  try {
+    await sql`insert into messages(clerk_user_id, role, mode, content)
+      values (${userId}, 'user', 'text', ${prompt}),
+             (${userId}, 'assistant', 'text', ${result})`;
+  } catch (e) {
+    console.error("Failed to save chat message:", e.message);
+  }
+};
+
+const isImageDataUrl = (s) =>
+  typeof s === "string" &&
+  /^data:image\/(png|jpe?g|webp|gif);base64,/.test(s) &&
+  s.length <= MAX_IMAGE_DATAURL_LENGTH;
+
+// ---------------------------------------------------------------------------
+// Deteksi AI-generated image via Sightengine (free tier, tanpa makan token LLM).
+// POST /api/ai/detect  body: { image: "data:image/...;base64,..." }
+// ---------------------------------------------------------------------------
+export const detectAiImage = async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!isImageDataUrl(image)) {
+      return res.status(400).json({ success: false, message: "invalid image data" });
+    }
+
+    const apiUser = process.env.SIGHTENGINE_API_USER;
+    const apiSecret = process.env.SIGHTENGINE_API_SECRET;
+    if (!apiUser || !apiSecret) {
+      return res.status(500).json({ success: false, message: "detector not configured" });
+    }
+
+    const mime = image.match(/^data:(image\/[a-z+]+);base64,/)[1];
+    const buffer = Buffer.from(image.split(",")[1], "base64");
+
+    const form = new FormData();
+    form.append("api_user", apiUser);
+    form.append("api_secret", apiSecret);
+    form.append("models", process.env.SIGHTENGINE_MODELS || "genai");
+    form.append("media", new Blob([buffer], { type: mime }), "image.jpg");
+
+    const resp = await fetch("https://api.sightengine.com/1.0/check.json", {
+      method: "POST",
+      body: form,
+    });
+    const data = await resp.json().catch(() => null);
+    if (!data || data.status !== "success") {
+      console.error("Sightengine error:", data?.error || resp.status);
+      return res
+        .status(502)
+        .json({ success: false, message: data?.error?.message || "detector failed" });
+    }
+
+    const raw = data?.type?.ai_generated ?? data?.ai_generated ?? null;
+    if (typeof raw !== "number") {
+      console.error("Sightengine unexpected response:", JSON.stringify(data).slice(0, 200));
+      return res.status(502).json({ success: false, message: "unexpected detector response" });
+    }
+
+    return res.json({ success: true, score: Math.round(raw * 100) });
+  } catch (error) {
+    console.error("Detect AI error:", error.message);
+    return res.status(500).json({ success: false, message: "detection failed" });
+  }
+};
 
 export const generateAi = async (req, res) => {
   try {
-    const { userId } = req.auth();
-    const { prompt, mode } = req.body;
-    const { plan, free_usage } = req;
+    const userId = req.userId;
+    const { prompt, images, think } = req.body;
 
     // validation
-    if (!prompt || !mode) {
-      return res.status(400).json({ success: false, message: "prompt and mode are required" });
+    if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
+      return res.status(400).json({ success: false, message: "prompt is required" });
     }
 
-    if (!["text", "image"].includes(mode)) {
-      return res.status(400).json({ success: false, message: "invalid mode" });
+    if (prompt.length > MAX_PROMPT_LENGTH) {
+      return res.status(400).json({ success: false, message: "prompt too long (max 8000 characters)" });
     }
 
-    if (plan !== "premium") {
-      if (free_usage >= 10) {
-        return res.status(401).json({
-          success: false,
-          message: "Limit reach, upgrade to premium",
-          limit_reached: true,
-        });
-      }
-
-      if (mode === "image") {
-        return res.status(403).json({ success: false, message: "image is required premium plan" });
-      }
+    const imageList = Array.isArray(images) ? images : [];
+    if (imageList.length > MAX_IMAGES) {
+      return res.status(400).json({ success: false, message: `max ${MAX_IMAGES} images` });
+    }
+    if (imageList.some((s) => !isImageDataUrl(s))) {
+      return res.status(400).json({ success: false, message: "invalid image data" });
     }
 
-    let result;
-    if (mode == "text") {
-      result = await generateText(userId, prompt);
-    } else {
-      const formData = new FormData();
-      formData.append("prompt", prompt);
-      const { data } = await axios.post("https://clipdrop-api.co/text-to-image/v1", formData, {
-        headers: { "X-API-KEY": process.env.CLIPDROP_API_KEY },
-        responseType: "arraybuffer",
-      });
-      const uploadResponse = await new Promise((resolve, reject) => {
-        cloudinary.uploader.upload_stream({ folder: "ai_chat_images", public_id: `user_${userId}_${Date.now()}` }, (error, result) => (error ? reject(error) : resolve(result))).end(data);
-      });
-
-      // uploading buffer into cloudinary
-      result = uploadResponse.secure_url;
-    }
-
-    // update usage database
-    let new_usage = free_usage;
-    if (plan !== "premium") {
-      new_usage++;
-      await clerkClient.users.updateUserMetadata(userId, {
-        privateMetadata: { free_usage: new_usage },
-      });
-    }
-    // TODO: DB insert when Neon connection fixed
-    // await sql`insert into messages(clerk_user_id, role, mode, content)
-    // values (${userId}, 'user', ${mode}, ${prompt}),
-    //        (${userId}, 'assistant', ${mode}, ${result})`;
-
-    const warning = plan !== "premium" && new_usage >= 9 ? `${10 - new_usage} free message left` : null;
-
-    return res.json({
-      success: true,
-      result,
-      free_usage: new_usage,
-      plan,
-      warning,
+    const meta = await generateTextWithMeta(userId, prompt, {
+      images: imageList.length > 0 ? imageList : undefined,
+      think: think === true,
     });
+
+    saveMessage(userId, prompt, meta.text);
+
+    return res.json({ success: true, result: meta.text, provider: meta.provider, model: meta.model });
   } catch (error) {
     console.error("AI Error:", error.providerErrors || error.message);
     const status = error.status || error.response?.status || 500;
-    const message = status === 429 ? "server busy" : error.message || "generator failed";
+    // Don't leak provider internals to the client; details are in the server log.
+    const message = status === 429 ? "server busy" : "generator failed";
 
     res.status(status).json({ success: false, message });
   }

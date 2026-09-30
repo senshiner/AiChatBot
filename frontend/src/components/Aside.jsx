@@ -1,39 +1,31 @@
-import { ImageIcon, Loader2, LogOut, MessageSquare, Plus } from "lucide-react";
-import { useClerk, useUser, Protect, useAuth } from "@clerk/clerk-react";
+import { ImageIcon, Loader2, LogOut, MessageSquare, Plus, Trash2 } from "lucide-react";
+import { useClerk, useUser, useAuth } from "@clerk/clerk-react";
 import ThemeToggle from "./ThemeToggle";
-import axios from "axios";
+import { loadChats, deleteChat } from "../lib/chatHistory";
 import { useEffect, useState } from "react";
 
-const Aside = ({ onSelectedChat }) => {
+const Aside = ({ onSelectedChat, open = true, onClose, onNewChat }) => {
   const { user } = useUser();
   const { getToken } = useAuth();
   const { signOut } = useClerk();
   const [history, setHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Riwayat dari localStorage (per browser), refresh saat ada perubahan.
   useEffect(() => {
-    let isMounted = true;
-
-    const fetchHistory = async () => {
-      try {
-        const token = await getToken();
-        const { data } = await axios.get("/api/chat/history", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (isMounted && data.success) setHistory(data.messages);
-      } catch (error) {
-        console.error("Failed to fetch history", error);
-      } finally {
-        if (isMounted) setIsLoading(false);
-      }
+    const refresh = () => {
+      setHistory(loadChats());
+      setIsLoading(false);
     };
+    refresh();
+    window.addEventListener("sendar:history-changed", refresh);
+    return () => window.removeEventListener("sendar:history-changed", refresh);
+  }, []);
 
-    fetchHistory();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [getToken]);
+  const handleDelete = (e, id) => {
+    e.stopPropagation();
+    deleteChat(id);
+  };
 
   const formatLabel = (content) => {
     if (!content) return "Untitled";
@@ -53,7 +45,16 @@ const Aside = ({ onSelectedChat }) => {
   };
 
   return (
-    <aside className="w-64 border-r border-slate-200 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-950/50 flex flex-col h-[calc(100vh-73px)] shrink-0" style={{ fontFamily: "sans-serif" }}>
+    <>
+      {/* backdrop (mobile) */}
+      <div
+        onClick={onClose}
+        className={`fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity ${open ? "opacity-100" : "pointer-events-none opacity-0"}`}
+      />
+      <aside
+        className={`fixed md:static inset-y-0 left-0 z-40 w-64 shrink-0 flex flex-col border-r border-slate-200 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-950 transition-transform duration-200 ${open ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
+        style={{ fontFamily: "sans-serif" }}
+      >
       {/* brand */}
       <div className="flex items-center gap-2 px-4 py-4 border-b border-slate-200 dark:border-zinc-800">
         <svg viewBox="0 0 319 86" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-9 w-auto">
@@ -67,7 +68,7 @@ const Aside = ({ onSelectedChat }) => {
       {/* new chat */}
       <div className="px-3 pt-2 pb-2 ">
         <button
-          onClick={() => window.location.href = window.location.pathname}
+          onClick={onNewChat || (() => (window.location.href = window.location.pathname))}
           className="w-full bg-indigo-600 flex items-center justify-center rounded-full  px-4 py-2.5 text-white hover:bg-indigo-900 transition-colors hover:cursor-pointer gap-2 font-medium text-xs  "
         >
           <Plus size={14} />
@@ -94,14 +95,19 @@ const Aside = ({ onSelectedChat }) => {
         ) : (
           <div className="space-y-0.5">
             {history.map((item) => (
-              <button key={item.id} onClick={() => onSelectedChat(item)} className="flex w-full items-start gap-2.5 text-left px-2.5 py-2 rounded-lg transition-colors shrink-0 text-slate-600 hover:bg-slate-200 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200">
-                <span className="mt-0.5 shrink-0 text-slate-500 group-hover:text-indigo-600 dark:text-zinc-600 dark:group-hover:text-indigo-400 transition-colors">{item.mode === "image" ? <ImageIcon size={13} /> : <MessageSquare size={13} />}</span>
+              <div key={item.id} className="group flex items-center gap-0.5 rounded-lg transition-colors text-slate-600 hover:bg-slate-200 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200">
+                <button onClick={() => { onSelectedChat(item); onClose?.(); }} className="flex flex-1 items-start gap-2.5 text-left px-2.5 py-2 min-w-0">
+                  <span className="mt-0.5 shrink-0 text-slate-500 group-hover:text-indigo-600 dark:text-zinc-600 dark:group-hover:text-indigo-400 transition-colors">{item.mode === "image" ? <ImageIcon size={13} /> : <MessageSquare size={13} />}</span>
 
-                <div className="flex flex-col min-w-0">
-                  <span className="truncate text-xs leading-relaxed">{formatLabel(item.content)}</span>
-                  <span className="text-[10px] text-slate-500 dark:text-zinc-600 mt-0.5">{formatDate(item.created_at)}</span>
-                </div>
-              </button>
+                  <div className="flex flex-col min-w-0">
+                    <span className="truncate text-xs leading-relaxed">{formatLabel(item.title)}</span>
+                    <span className="text-[10px] text-slate-500 dark:text-zinc-600 mt-0.5">{formatDate(item.updated_at)}</span>
+                  </div>
+                </button>
+                <button onClick={(e) => handleDelete(e, item.id)} title="Hapus riwayat" className="p-1.5 mr-1 rounded-md shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-opacity">
+                  <Trash2 size={13} />
+                </button>
+              </div>
             ))}
           </div>
         )}
@@ -114,9 +120,6 @@ const Aside = ({ onSelectedChat }) => {
             <img src={user.imageUrl} alt="image" className="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-300 dark:border-zinc-700" />
             <div className="flex flex-col min-w-0 flex-1">
               <span className="text-xs font-semibold text-slate-900 dark:text-zinc-200 truncate">{user.fullName}</span>
-              <Protect plan="premium" fallback={<span className="text-[10px] text-slate-500 dark:text-zinc-500">Free Plan</span>}>
-                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">Premium</span>
-              </Protect>
             </div>
             
             <ThemeToggle />
@@ -127,6 +130,7 @@ const Aside = ({ onSelectedChat }) => {
         )}
       </div>
     </aside>
+    </>
   );
 };
 

@@ -1,24 +1,14 @@
-import { clerkClient } from "@clerk/express";
-
+// Login-only auth. There is no plan/tier system: every signed-in user gets
+// the same access.
 export const auth = async (req, res, next) => {
   try {
     const { userId } = req.auth();
     if (!userId) {
-      return res.json({ success: false, message: "please sign in your account" });
+      return res.status(401).json({ success: false, message: "please sign in" });
     }
-
-    // get user
-    const user = await clerkClient.users.getUser(userId);
-    //Resource "users" di Clerk API
-    //Ambil detail user berdasarkan ID
-    // set plan into clerk
-
-    req.plan = user.publicMetadata?.plan === "premium" ? "premium" : "free"; //Backend + Frontend (bisa dilihat client)
-    req.free_usage = user.privateMetadata?.free_usage || 0; //Backend saja (rahasia, nggak bocor ke frontend)
-
+    req.userId = userId;
     next();
   } catch (error) {
-    console.log(error.message);
-    return res.json({ success: false, message: error.message });
+    return res.status(401).json({ success: false, message: "authentication required" });
   }
 };
