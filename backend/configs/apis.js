@@ -22,7 +22,7 @@ const APIs = Object.fromEntries([
     type: "openai-compatible",
     baseURL: process.env.GROQ_BASE_URL || "https://api.groq.com/openai/v1",
     apiKey: process.env.GROQ_API_KEY || null,
-    model: process.env.GROQ_MODEL || "llama-3.1-8b-instant",
+    model: process.env.GROQ_MODEL || "openai/gpt-oss-20b",
   }),
   define("zai", {
     type: "openai-compatible",
