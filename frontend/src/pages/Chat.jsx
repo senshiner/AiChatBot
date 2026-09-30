@@ -761,24 +761,27 @@ const Chat = () => {
           <div className="absolute bottom-0 left-0 right-0 px-4 pb-5 pt-3 bg-linear-to-t from-white dark:from-zinc-950 via-white/50 dark:via-zinc-950/50 to-transparent">
             <div className="max-w-2xl mx-auto space-y-2">
               {/* input box ala referensi */}
-              <div className="relative bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 rounded-2xl focus-within:border-teal-500 transition-colors">
-                {/* aksen teal kiri */}
-                <div className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full bg-teal-400" />
+              <div className="relative bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 rounded-2xl focus-within:border-indigo-500 transition-colors">
+                {/* aksen indigo kiri */}
+                <div className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full bg-indigo-500" />
 
-                {/* bar statistik */}
-                <div className="flex items-center gap-3 pl-5 pr-4 pt-3 text-xs">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-teal-500/50 bg-teal-500/10 text-teal-600 dark:text-teal-300 font-semibold whitespace-nowrap">
+                {/* bar statistik — bisa di-scroll horizontal di layar sempit */}
+                <div
+                  className="flex items-center gap-2.5 pl-5 pr-4 pt-3 text-xs overflow-x-auto whitespace-nowrap"
+                  style={{ scrollbarWidth: "none" }}
+                >
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-indigo-500/40 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 font-semibold shrink-0">
                     <Zap size={12} />~{tokens} token
                   </span>
                   {think && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-violet-500/50 bg-violet-500/10 text-violet-600 dark:text-violet-300 font-semibold whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-violet-500/50 bg-violet-500/10 text-violet-600 dark:text-violet-300 font-semibold shrink-0">
                       <Brain size={12} />Berpikir keras
                     </span>
                   )}
-                  <span className="text-slate-500 dark:text-zinc-500 whitespace-nowrap">
+                  <span className="text-slate-500 dark:text-zinc-500 shrink-0">
                     {chars} karakter <span aria-hidden>•</span> {words} kata
                   </span>
-                  <span className="ml-auto inline-flex items-center gap-1.5 font-semibold whitespace-nowrap text-teal-600 dark:text-teal-300">
+                  <span className="ml-auto inline-flex items-center gap-1.5 font-semibold shrink-0 text-slate-600 dark:text-zinc-300">
                     <span className={`w-2 h-2 rounded-full ${hematLevel === 0 ? "bg-green-500" : hematLevel === 1 ? "bg-yellow-500" : "bg-red-500"}`} />
                     {hematLabel}
                   </span>
@@ -885,7 +888,7 @@ const Chat = () => {
 
                   <button
                     disabled={isLoading || (!formData.prompt.trim() && attachments.length === 0)}
-                    className="w-11 h-11 flex items-center justify-center rounded-xl bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                    className="w-11 h-11 flex items-center justify-center rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                     aria-label="Kirim"
                   >
                     <Send size={18} />
