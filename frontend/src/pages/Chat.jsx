@@ -19,13 +19,15 @@ import api from "../lib/api";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast, Toaster } from "react-hot-toast";
+import { newChatId, saveChat, getChat } from "../lib/chatHistory";
 
 // ---------------------------------------------------------------------------
-// Sapaan awal pakai nama akun Clerk.
+// Sapaan awal pakai nama akun.
 // ---------------------------------------------------------------------------
 const greetingFor = (name) => ({
   role: "assistant",
-  content: name ? `Hai ${name}, ada yang bisa dibantu?` : "Hai, ada yang bisa dibantu?",
+  isGreeting: true,
+  content: name ? `Hai ${name}, ada yang bisa dibantu hari ini?` : "Hai, ada yang bisa dibantu hari ini?",
   mode: "text",
 });
 
@@ -231,7 +233,19 @@ const Chat = () => {
   const [pendingModel, setPendingModel] = useState(null);
 
   const [formData, setFormData] = useState({ prompt: "", mode: "text" });
-  const [messages, setMessages] = useState(() => [greetingFor(user?.firstName)]);
+  // Nama akun untuk sapaan (fullName, fallback firstName).
+  const displayName = user?.fullName?.trim() || user?.firstName?.trim() || "";
+  const [messages, setMessages] = useState(() => [greetingFor(displayName)]);
+  const [currentChatId, setCurrentChatId] = useState(() => newChatId());
+
+  // Clerk memuat user secara async — perbarui sapaan saat nama tersedia
+  // (hanya jika chat masih berisi sapaan awal).
+  useEffect(() => {
+    if (!displayName) return;
+    setMessages((msgs) =>
+      msgs.length === 1 && msgs[0]?.isGreeting ? [greetingFor(displayName)] : msgs
+    );
+  }, [displayName]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -250,18 +264,30 @@ const Chat = () => {
     typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
 
   const handleChatSelection = (item) => {
-    setMessages([
-      { role: "user", content: item.content, mode: item.mode },
-      {
-        role: "assistant",
-        content: item.result || "no response found",
-        mode: item.mode,
-      },
-    ]);
+    const chat = getChat(item.id);
+    if (chat) {
+      setCurrentChatId(chat.id);
+      setMessages(
+        chat.messages && chat.messages.length > 0 ? chat.messages : [greetingFor(displayName)]
+      );
+    }
+  };
+
+  // Simpan chat aktif ke localStorage (riwayat sementara per browser).
+  const persistCurrentChat = (msgs, mode) => {
+    const firstUser = msgs.find((m) => m.role === "user");
+    if (!firstUser) return; // jangan simpan chat kosong (cuma sapaan)
+    saveChat({
+      id: currentChatId,
+      title: firstUser.content.slice(0, 60),
+      messages: msgs,
+      mode,
+    });
   };
 
   const startNewChat = () => {
-    setMessages([greetingFor(user?.firstName)]);
+    setCurrentChatId(newChatId());
+    setMessages([greetingFor(displayName)]);
     setFormData({ prompt: "", mode: "text" });
     setMenuOpen(false);
     inputRef.current?.focus();
@@ -367,16 +393,20 @@ const Chat = () => {
       );
 
       if (data.success) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: data.result,
-            mode: currentMode,
-            provider: data.provider,
-            model: data.model,
-          },
-        ]);
+        setMessages((prev) => {
+          const next = [
+            ...prev,
+            {
+              role: "assistant",
+              content: data.result,
+              mode: currentMode,
+              provider: data.provider,
+              model: data.model,
+            },
+          ];
+          persistCurrentChat(next, currentMode);
+          return next;
+        });
       } else {
         const msg =
           data.message?.includes("429") || data.message?.includes("status code")
@@ -387,14 +417,18 @@ const Chat = () => {
     } catch (error) {
       console.error("submission error :", error);
       toast.error(error?.response?.data?.message || "connection error");
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "maaf, ada yang salah tolong cek internet anda",
-          mode: "text",
-        },
-      ]);
+      setMessages((prev) => {
+        const next = [
+          ...prev,
+          {
+            role: "assistant",
+            content: "maaf, ada yang salah tolong cek internet anda",
+            mode: "text",
+          },
+        ];
+        persistCurrentChat(next, "text");
+        return next;
+      });
     } finally {
       setIsLoading(false);
       setPendingModel(null);
@@ -490,16 +524,9 @@ const Chat = () => {
             <div className="max-w-2xl mx-auto space-y-6 pb-40">
               {messages.map((message, i) =>
                 message.role === "user" ? (
-                  <div key={i} className="flex gap-3 flex-row-reverse">
-                    {/* avatar */}
-                    <img
-                      src={user.imageUrl}
-                      alt="image"
-                      className="w-8 h-8  rounded-full  border border-slate-300 dark:border-zinc-700 shrink-0 object-cover"
-                    />
-
+                  <div key={i} className="flex justify-end">
                     {/* content */}
-                    <div className="max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-indigo-600 text-white rounded-tr-sm whitespace-pre-wrap break-words">
+                    <div className="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-indigo-600 text-white rounded-br-sm whitespace-pre-wrap break-words">
                       {message.content}
                     </div>
                   </div>
