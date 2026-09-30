@@ -1,3 +1,8 @@
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* Inline code di dalam pesan markdown (blok kode ditangani komponen CodeBlock). */
+.chat-md :not(pre) > code {
+  @apply rounded bg-slate-200 px-1 py-0.5 font-mono text-xs text-indigo-700 dark:bg-zinc-800 dark:text-indigo-300;
+}
