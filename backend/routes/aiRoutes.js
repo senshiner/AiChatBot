@@ -11,7 +11,8 @@ aiRouter.post("/generate", auth, rateLimit, generateAi);
 // Which provider/model would serve the next request (no side effects).
 // The frontend uses this for the typing indicator ("model yang sedang typing").
 aiRouter.get("/provider-preview", auth, rateLimit, (req, res) => {
-  const peek = peekProvider();
+  const kind = ["vision", "think"].includes(req.query.kind) ? req.query.kind : "text";
+  const peek = peekProvider(kind);
   if (!peek) return res.json({ success: false, message: "no AI providers configured" });
   res.json({ success: true, provider: peek.provider, model: peek.model });
 });

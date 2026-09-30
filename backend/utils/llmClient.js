@@ -52,15 +52,23 @@ const saveSession = (userId, providerName, session) => {
   sessions.set(`${userId}:${providerName}`, session);
 };
 
-const callOpenAiCompatible = async (provider, prompt) => {
+const callOpenAiCompatible = async (provider, prompt, images) => {
   const client = new OpenAI({
     apiKey: provider.apiKey || "unused",
     baseURL: provider.baseURL,
     timeout: provider.timeout || 25000,
   });
+  // Vision: kirim gambar sebagai image_url (format OpenAI), teks terpisah.
+  const content =
+    images && images.length > 0
+      ? [
+          { type: "text", text: prompt },
+          ...images.map((url) => ({ type: "image_url", image_url: { url } })),
+        ]
+      : prompt;
   const response = await client.chat.completions.create({
     model: provider.model,
-    messages: [{ role: "user", content: prompt }],
+    messages: [{ role: "user", content }],
   });
 
   const result = response?.choices?.[0]?.message?.content;
@@ -93,9 +101,9 @@ const callRestProvider = async (provider, providerName, userId, prompt) => {
   return result;
 };
 
-const callProvider = (provider, providerName, userId, prompt) => {
+const callProvider = (provider, providerName, userId, prompt, opts = {}) => {
   if (provider.type === "openai-compatible") {
-    return callOpenAiCompatible(provider, prompt);
+    return callOpenAiCompatible(provider, prompt, opts.images);
   }
   if (provider.type === "rest") {
     return callRestProvider(provider, providerName, userId, prompt);
@@ -115,9 +123,23 @@ const markFailure = (name) => {
 // Candidate order for the next request: priority providers first (fixed
 // order), then the rest in round-robin rotation, skipping providers that are
 // in cooldown after repeated failures. Pure read — no cursor/health changes.
-const planOrder = () => {
-  const providers = activeProviders();
+//
+// kind: "text" (default) | "vision" | "think"
+// - "text": provider khusus (role vision/think) tidak ikut.
+// - "vision": hanya provider bertanda vision:true.
+// - "think": hanya provider bertanda think:true; kalau kosong, fallback ke "text".
+const planOrder = (kind = "text") => {
   const now = Date.now();
+  let providers = activeProviders();
+  if (kind === "vision") {
+    providers = providers.filter((p) => p.vision === true);
+  } else if (kind === "think") {
+    const thinkers = providers.filter((p) => p.think === true);
+    if (thinkers.length > 0) providers = thinkers;
+    // else: fallback ke provider teks biasa di bawah
+  } else {
+    providers = providers.filter((p) => !p.role);
+  }
 
   const priority = providers
     .filter((p) => typeof p.priority === "number")
@@ -131,8 +153,9 @@ const planOrder = () => {
   return { order, rest };
 };
 
-export const generateTextWithMeta = async (userId, prompt) => {
-  const { order, rest } = planOrder();
+export const generateTextWithMeta = async (userId, prompt, opts = {}) => {
+  const kind = opts.images && opts.images.length > 0 ? "vision" : opts.think ? "think" : "text";
+  const { order, rest } = planOrder(kind);
 
   if (order.length === 0) {
     const error = new Error("all AI providers are in cooldown");
@@ -149,7 +172,7 @@ export const generateTextWithMeta = async (userId, prompt) => {
 
   for (const p of order) {
     try {
-      const text = await callProvider(p, p.name, userId, prompt);
+      const text = await callProvider(p, p.name, userId, prompt, opts);
       markSuccess(p.name);
       // Advance the round-robin cursor only when a rotating provider served
       // the request; priority providers never disturb the rotation.
@@ -173,8 +196,8 @@ export const generateText = async (userId, prompt) =>
 
 // Which provider/model would serve the next request, without side effects
 // (no cursor advance, no health changes). Used for the typing indicator.
-export const peekProvider = () => {
-  const { order } = planOrder();
+export const peekProvider = (kind = "text") => {
+  const { order } = planOrder(kind);
   const p = order[0];
   return p ? { provider: p.name, model: p.model || null } : null;
 };

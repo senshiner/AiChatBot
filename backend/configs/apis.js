@@ -44,6 +44,17 @@ const fixedProviders = [
     // Verified working 2026-09-30. NOTE: gemini-2.5-flash is retired for new
     // users (API returns 404 telling you to upgrade).
     model: process.env.GEMINI_MODEL || "gemini-3-flash-preview",
+    vision: true, // model ini juga bisa baca gambar (dipakai saat ada lampiran)
+  }),
+  // "Berpikir keras": model reasoning khusus, hanya dipakai saat think=true.
+  define("groq-think", {
+    type: "openai-compatible",
+    baseURL: process.env.GROQ_BASE_URL || "https://api.groq.com/openai/v1",
+    apiKey: process.env.GROQ_API_KEY || null,
+    model: process.env.GROQ_THINK_MODEL || "openai/gpt-oss-120b",
+    role: "think",
+    think: true,
+    timeout: 60000,
   }),
   define("openrouter", {
     type: "openai-compatible",

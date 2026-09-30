@@ -13,7 +13,7 @@ const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:5173")
   .map((s) => s.trim())
   .filter(Boolean);
 app.use(cors({ origin: allowedOrigins }));
-app.use(express.json());
+app.use(express.json({ limit: "25mb" })); // lampiran gambar base64
 app.use(clerkMiddleware());
 
 app.get("/", (req, res) => {

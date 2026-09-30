@@ -1,84 +1,59 @@
-import FormData from "form-data";
 import { generateTextWithMeta } from "../utils/llmClient.js";
-import axios from "axios";
 import sql from "../configs/db.js";
-import { v2 as cloudinary } from "cloudinary";
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
 
 const MAX_PROMPT_LENGTH = 8000;
+const MAX_IMAGES = 4;
+// Data URL gambar hasil resize client (batas kecil); tolak yang kelewat besar.
+const MAX_IMAGE_DATAURL_LENGTH = 6_000_000;
 
 // Best-effort history persistence. Never fails the request: if the DB is not
 // configured or the insert fails, generation still succeeds.
-const saveMessage = async (userId, mode, prompt, result) => {
+const saveMessage = async (userId, prompt, result) => {
   if (!sql) return;
   try {
     await sql`insert into messages(clerk_user_id, role, mode, content)
-      values (${userId}, 'user', ${mode}, ${prompt}),
-             (${userId}, 'assistant', ${mode}, ${result})`;
+      values (${userId}, 'user', 'text', ${prompt}),
+             (${userId}, 'assistant', 'text', ${result})`;
   } catch (e) {
     console.error("Failed to save chat message:", e.message);
   }
 };
 
+const isImageDataUrl = (s) =>
+  typeof s === "string" &&
+  /^data:image\/(png|jpe?g|webp|gif);base64,/.test(s) &&
+  s.length <= MAX_IMAGE_DATAURL_LENGTH;
+
 export const generateAi = async (req, res) => {
   try {
     const userId = req.userId;
-    const { prompt, mode } = req.body;
+    const { prompt, images, think } = req.body;
 
     // validation
-    if (!prompt || !mode) {
-      return res.status(400).json({ success: false, message: "prompt and mode are required" });
-    }
-
-    if (!["text", "image"].includes(mode)) {
-      return res.status(400).json({ success: false, message: "invalid mode" });
+    if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
+      return res.status(400).json({ success: false, message: "prompt is required" });
     }
 
     if (prompt.length > MAX_PROMPT_LENGTH) {
       return res.status(400).json({ success: false, message: "prompt too long (max 8000 characters)" });
     }
 
-    let result;
-    let provider = null;
-    let model = null;
-    if (mode === "text") {
-      const meta = await generateTextWithMeta(userId, prompt);
-      result = meta.text;
-      provider = meta.provider;
-      model = meta.model;
-    } else {
-      const formData = new FormData();
-      formData.append("prompt", prompt);
-      const { data } = await axios.post("https://clipdrop-api.co/text-to-image/v1", formData, {
-        headers: { "X-API-KEY": process.env.CLIPDROP_API_KEY },
-        responseType: "arraybuffer",
-        timeout: 60000,
-      });
-      const uploadResponse = await new Promise((resolve, reject) => {
-        cloudinary.uploader
-          .upload_stream(
-            {
-              folder: "ai_chat_images",
-              public_id: `user_${userId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            },
-            (error, result) => (error ? reject(error) : resolve(result))
-          )
-          .end(data);
-      });
-
-      // uploading buffer into cloudinary
-      result = uploadResponse.secure_url;
-      provider = "clipdrop";
+    const imageList = Array.isArray(images) ? images : [];
+    if (imageList.length > MAX_IMAGES) {
+      return res.status(400).json({ success: false, message: `max ${MAX_IMAGES} images` });
+    }
+    if (imageList.some((s) => !isImageDataUrl(s))) {
+      return res.status(400).json({ success: false, message: "invalid image data" });
     }
 
-    saveMessage(userId, mode, prompt, result);
+    const meta = await generateTextWithMeta(userId, prompt, {
+      images: imageList.length > 0 ? imageList : undefined,
+      think: think === true,
+    });
 
-    return res.json({ success: true, result, provider, model });
+    saveMessage(userId, prompt, meta.text);
+
+    return res.json({ success: true, result: meta.text, provider: meta.provider, model: meta.model });
   } catch (error) {
     console.error("AI Error:", error.providerErrors || error.message);
     const status = error.status || error.response?.status || 500;

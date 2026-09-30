@@ -1,18 +1,20 @@
 import Aside from "../components/Aside";
 import { SignIn, useUser, useAuth } from "@clerk/clerk-react";
 import {
+  Brain,
+  Camera,
   Check,
   Copy,
   Eye,
   Code2,
-  ImageIcon,
+  FileUp,
+  ImagePlus,
   Menu,
   Mic,
   Plus,
   Send,
-  Type,
-  Eraser,
-  ClipboardCopy,
+  X,
+  Zap,
 } from "lucide-react";
 import { Children, isValidElement, useEffect, useRef, useState } from "react";
 import api from "../lib/api";
@@ -20,6 +22,15 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast, Toaster } from "react-hot-toast";
 import { newChatId, saveChat, getChat } from "../lib/chatHistory";
+import {
+  MAX_FILE_MB,
+  MAX_IMAGES,
+  isWithinLimit,
+  readAsDataUrl,
+  downscaleImage,
+  makeThumb,
+  extractPdfText,
+} from "../lib/attachments";
 
 // ---------------------------------------------------------------------------
 // Sapaan awal pakai nama akun.
@@ -232,7 +243,14 @@ const Chat = () => {
   // Model yang sedang dipakai untuk request berjalan (indikator typing).
   const [pendingModel, setPendingModel] = useState(null);
 
-  const [formData, setFormData] = useState({ prompt: "", mode: "text" });
+  const [formData, setFormData] = useState({ prompt: "" });
+  // "Berpikir keras": pakai model reasoning khusus.
+  const [think, setThink] = useState(false);
+  // Lampiran: [{ id, kind: "image"|"pdf", name, dataUrl?, thumb?, pdfText? }]
+  const [attachments, setAttachments] = useState([]);
+  const cameraRef = useRef(null);
+  const photoRef = useRef(null);
+  const fileRef = useRef(null);
   // Nama akun untuk sapaan (fullName, fallback firstName).
   const displayName = user?.fullName?.trim() || user?.firstName?.trim() || "";
   const [messages, setMessages] = useState(() => [greetingFor(displayName)]);
@@ -274,37 +292,85 @@ const Chat = () => {
   };
 
   // Simpan chat aktif ke localStorage (riwayat sementara per browser).
-  const persistCurrentChat = (msgs, mode) => {
+  const persistCurrentChat = (msgs) => {
     const firstUser = msgs.find((m) => m.role === "user");
     if (!firstUser) return; // jangan simpan chat kosong (cuma sapaan)
     saveChat({
       id: currentChatId,
-      title: firstUser.content.slice(0, 60),
+      title: (firstUser.content || "[lampiran]").slice(0, 60),
       messages: msgs,
-      mode,
     });
   };
 
   const startNewChat = () => {
     setCurrentChatId(newChatId());
     setMessages([greetingFor(displayName)]);
-    setFormData({ prompt: "", mode: "text" });
+    setFormData({ prompt: "" });
+    setAttachments([]);
     setMenuOpen(false);
     inputRef.current?.focus();
   };
 
-  const copyConversation = async () => {
-    const text = messages
-      .map((m) => `${m.role === "user" ? "Kamu" : "Sendar"}: ${m.content}`)
-      .join("\n\n");
-    const ok = await copyText(text);
-    toast[ok ? "success" : "error"](ok ? "Percakapan disalin" : "Gagal menyalin");
+  const removeAttachment = (id) =>
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+
+  // Terima file dari kamera / foto / file picker.
+  const handlePickedFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
     setMenuOpen(false);
+
+    const currentImages = attachments.filter((a) => a.kind === "image").length;
+    let addedImages = 0;
+
+    for (const file of files) {
+      if (!isWithinLimit(file)) {
+        toast.error(`"${file.name}" melebihi ${MAX_FILE_MB} MB`);
+        continue;
+      }
+      try {
+        if (file.type.startsWith("image/")) {
+          if (currentImages + addedImages >= MAX_IMAGES) {
+            toast.error(`Maksimal ${MAX_IMAGES} gambar`);
+            break;
+          }
+          const raw = await readAsDataUrl(file);
+          let dataUrl = raw;
+          try {
+            dataUrl = await downscaleImage(raw, 1024, 0.85);
+          } catch {
+            // fallback: pakai original
+          }
+          const thumb = await makeThumb(raw).catch(() => dataUrl);
+          setAttachments((prev) => [
+            ...prev,
+            { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, kind: "image", name: file.name, dataUrl, thumb },
+          ]);
+          addedImages++;
+        } else if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+          toast.loading(`Membaca PDF "${file.name}"...`, { id: "pdf" });
+          const text = await extractPdfText(file);
+          toast.dismiss("pdf");
+          if (!text) {
+            toast.error("PDF tidak ada teks yang bisa dibaca");
+            continue;
+          }
+          setAttachments((prev) => [
+            ...prev,
+            { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, kind: "pdf", name: file.name, pdfText: text },
+          ]);
+        } else {
+          toast.error(`Tipe file tidak didukung: ${file.name}`);
+        }
+      } catch (e) {
+        toast.dismiss("pdf");
+        toast.error(`Gagal memproses "${file.name}"`);
+      }
+    }
   };
 
-  const toggleMode = (mode) => setFormData({ ...formData, mode });
   const handleChange = (e) => {
-    setFormData({ ...formData, prompt: e.target.value });
+    setFormData({ prompt: e.target.value });
     e.target.style.height = "auto";
     e.target.style.height = Math.min(e.target.scrollHeight, 150) + "px";
   };
@@ -346,16 +412,32 @@ const Chat = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.prompt.trim() || isLoading) return;
+    if (isLoading) return;
+    const currentPrompt = formData.prompt.trim();
+    const currentAttachments = attachments;
+    const currentThink = think;
+    if (!currentPrompt && currentAttachments.length === 0) return;
 
-    const currentPrompt = formData.prompt;
-    const currentMode = formData.mode;
+    // Konteks PDF digabung ke prompt yang dikirim ke AI (tidak ditampilkan di bubble).
+    const pdfContexts = currentAttachments
+      .filter((a) => a.kind === "pdf")
+      .map((a) => `[Lampiran PDF "${a.name}"]:\n${a.pdfText}`)
+      .join("\n\n");
+    const promptForAi = pdfContexts ? `${pdfContexts}\n\n${currentPrompt}` : currentPrompt;
+    const imageDataUrls = currentAttachments.filter((a) => a.kind === "image").map((a) => a.dataUrl);
+    const kind = imageDataUrls.length > 0 ? "vision" : currentThink ? "think" : "text";
 
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", content: currentPrompt, mode: currentMode },
-    ]);
-    setFormData({ ...formData, prompt: "" });
+    const userMsg = {
+      role: "user",
+      content: currentPrompt,
+      thumbs: currentAttachments.filter((a) => a.kind === "image").map((a) => a.thumb),
+      pdfNames: currentAttachments.filter((a) => a.kind === "pdf").map((a) => a.name),
+      think: currentThink,
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
+    setFormData({ prompt: "" });
+    setAttachments([]);
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
     }
@@ -370,7 +452,7 @@ const Chat = () => {
 
       // Cari tahu model yang akan melayani request ini (untuk indikator typing).
       try {
-        const { data: preview } = await api.get("/api/ai/provider-preview", {
+        const { data: preview } = await api.get(`/api/ai/provider-preview?kind=${kind}`, {
           headers,
         });
         if (preview.success) {
@@ -386,8 +468,9 @@ const Chat = () => {
       const { data } = await api.post(
         "/api/ai/generate",
         {
-          prompt: currentPrompt,
-          mode: currentMode,
+          prompt: promptForAi,
+          images: imageDataUrls,
+          think: currentThink,
         },
         { headers }
       );
@@ -399,12 +482,11 @@ const Chat = () => {
             {
               role: "assistant",
               content: data.result,
-              mode: currentMode,
               provider: data.provider,
               model: data.model,
             },
           ];
-          persistCurrentChat(next, currentMode);
+          persistCurrentChat(next);
           return next;
         });
       } else {
@@ -423,10 +505,9 @@ const Chat = () => {
           {
             role: "assistant",
             content: "maaf, ada yang salah tolong cek internet anda",
-            mode: "text",
           },
         ];
-        persistCurrentChat(next, "text");
+        persistCurrentChat(next);
         return next;
       });
     } finally {
@@ -446,7 +527,10 @@ const Chat = () => {
   const chars = formData.prompt.length;
   const words = countWords(formData.prompt);
   const tokens = estimateTokens(formData.prompt);
-  const hemat = tokens > 0 && tokens <= 150;
+  // Tingkat kehematan prompt ala referensi.
+  const hematLevel = tokens <= 150 ? 0 : tokens <= 800 ? 1 : 2;
+  const hematLabel =
+    hematLevel === 0 ? "Prompt sangat hemat" : hematLevel === 1 ? "Prompt hemat" : "Prompt boros";
 
   return (
     <>
@@ -526,8 +610,34 @@ const Chat = () => {
                 message.role === "user" ? (
                   <div key={i} className="flex justify-end">
                     {/* content */}
-                    <div className="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-indigo-600 text-white rounded-br-sm whitespace-pre-wrap break-words">
-                      {message.content}
+                    <div className="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-indigo-600 text-white rounded-br-sm break-words">
+                      {message.think && (
+                        <div className="flex items-center gap-1.5 mb-2 text-[10px] font-semibold uppercase tracking-widest text-indigo-200">
+                          <Brain size={11} /> Berpikir keras
+                        </div>
+                      )}
+                      {message.thumbs?.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          {message.thumbs.map((t, j) => (
+                            <img key={j} src={t} className="w-20 h-20 object-cover rounded-lg" alt="" />
+                          ))}
+                        </div>
+                      )}
+                      {message.pdfNames?.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {message.pdfNames.map((n, j) => (
+                            <span key={j} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-indigo-700 text-[11px] text-indigo-100 max-w-full">
+                              <FileUp size={11} className="shrink-0" />
+                              <span className="truncate">{n}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {message.content ? (
+                        <div className="whitespace-pre-wrap break-words">{message.content}</div>
+                      ) : (
+                        <div className="italic text-indigo-200 text-xs">Lampiran terkirim</div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -537,14 +647,7 @@ const Chat = () => {
 
                     {/* content */}
                     <div className="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-slate-200 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 rounded-tl-sm border border-slate-300 dark:border-zinc-700">
-                      {message.mode === "image" ? (
-                        <img
-                          src={message.content}
-                          className="rounded-xl max-w-full h-auto"
-                          alt=""
-                        />
-                      ) : (
-                        <div className="chat-md">
+                      <div className="chat-md">
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{
@@ -643,7 +746,6 @@ const Chat = () => {
                           {message.content}
                         </ReactMarkdown>
                       </div>
-                    )}
                   </div>
                 </div>
               ))}
@@ -656,76 +758,104 @@ const Chat = () => {
           </div>
 
           {/* input area */}
-          <div className="absolute bottom-0  left-0 right-0  px-4 pb-5 pt-3 bg-linear-to-t from-white dark:from-zinc-950 via-white/50 dark:via-zinc-950/50  to-transparent ">
-            <div className="max-w-2xl  mx-auto space-y-2">
-              {/* input box */}
-              <div className="bg-slate-100 dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 rounded-2xl overflow-hidden focus-within:border-indigo-500 transition-colors">
-                {/* mode input */}
-                <div className="flex gap-1 px-3 py-2.5">
-                  <button
-                    onClick={() => toggleMode("text")}
-                    type="button"
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg  text-xs font-medium transition-colors ${formData.mode === "text" ? "bg-indigo-500 text-white" : "text-slate-500 dark:text-zinc-500 hover:text-zinc-300"} `}
-                  >
-                    <Type size={14} />
-                    Text
-                  </button>
-                  <button
-                    onClick={() => toggleMode("image")}
-                    type="button"
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg  text-xs font-medium transition-colors ${formData.mode === "image" ? "bg-indigo-500 text-white" : "text-slate-500 dark:text-zinc-500 hover:text-zinc-300"} `}
-                  >
-                    <ImageIcon size={14} /> Image
-                  </button>
+          <div className="absolute bottom-0 left-0 right-0 px-4 pb-5 pt-3 bg-linear-to-t from-white dark:from-zinc-950 via-white/50 dark:via-zinc-950/50 to-transparent">
+            <div className="max-w-2xl mx-auto space-y-2">
+              {/* input box ala referensi */}
+              <div className="relative bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 rounded-2xl focus-within:border-teal-500 transition-colors">
+                {/* aksen teal kiri */}
+                <div className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full bg-teal-400" />
+
+                {/* bar statistik */}
+                <div className="flex items-center gap-3 pl-5 pr-4 pt-3 text-xs">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-teal-500/50 bg-teal-500/10 text-teal-600 dark:text-teal-300 font-semibold whitespace-nowrap">
+                    <Zap size={12} />~{tokens} token
+                  </span>
+                  {think && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-violet-500/50 bg-violet-500/10 text-violet-600 dark:text-violet-300 font-semibold whitespace-nowrap">
+                      <Brain size={12} />Berpikir keras
+                    </span>
+                  )}
+                  <span className="text-slate-500 dark:text-zinc-500 whitespace-nowrap">
+                    {chars} karakter <span aria-hidden>•</span> {words} kata
+                  </span>
+                  <span className="ml-auto inline-flex items-center gap-1.5 font-semibold whitespace-nowrap text-teal-600 dark:text-teal-300">
+                    <span className={`w-2 h-2 rounded-full ${hematLevel === 0 ? "bg-green-500" : hematLevel === 1 ? "bg-yellow-500" : "bg-red-500"}`} />
+                    {hematLabel}
+                  </span>
                 </div>
 
-                {/* statistik prompt */}
-                {formData.prompt && (
-                  <div className="flex items-center gap-2 px-3 pb-1 text-[10px] text-slate-500 dark:text-zinc-500">
-                    <span title="Estimasi token">~{tokens} token</span>
-                    <span aria-hidden>·</span>
-                    <span>{chars} karakter</span>
-                    <span aria-hidden>·</span>
-                    <span>{words} kata</span>
-                    {hemat && (
-                      <span className="ml-1 px-1.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 font-semibold">
-                        Prompt Hemat
-                      </span>
-                    )}
+                <div className="mx-4 my-2 border-t border-slate-200 dark:border-zinc-800" />
+
+                {/* preview lampiran */}
+                {attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2 px-4 pb-1">
+                    {attachments.map((a) => (
+                      <div key={a.id} className="relative shrink-0">
+                        {a.kind === "image" ? (
+                          <img src={a.thumb} className="w-14 h-14 object-cover rounded-xl border border-slate-300 dark:border-zinc-700" alt="" />
+                        ) : (
+                          <div className="flex items-center gap-1.5 h-14 px-3 rounded-xl border border-slate-300 dark:border-zinc-700 bg-slate-100 dark:bg-zinc-800 text-xs text-slate-600 dark:text-zinc-300 max-w-[180px]">
+                            <FileUp size={14} className="shrink-0" />
+                            <span className="truncate">{a.name}</span>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(a.id)}
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-zinc-700 text-white hover:bg-red-500 transition-colors"
+                          aria-label="Hapus lampiran"
+                        >
+                          <X size={11} />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 )}
 
                 {/* input row */}
-                <form
-                  onSubmit={handleSubmit}
-                  action=""
-                  className="flex items-end gap-2 px-3 py-2.5"
-                >
+                <form onSubmit={handleSubmit} action="" className="flex items-center gap-1.5 pl-3 pr-3 pb-3">
                   {/* menu + */}
                   <div ref={menuRef} className="relative shrink-0">
                     <button
                       type="button"
                       onClick={() => setMenuOpen((v) => !v)}
-                      className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-500 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-zinc-800 transition-colors"
+                      className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-500 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-zinc-800 transition-colors"
                       aria-label="Menu"
                     >
-                      <Plus size={16} />
+                      <Plus size={20} />
                     </button>
                     {menuOpen && (
-                      <div className="absolute bottom-10 left-0 w-44 rounded-xl border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg py-1 z-20">
+                      <div className="absolute bottom-11 left-0 w-48 rounded-xl border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl py-1 z-20">
                         <button
                           type="button"
-                          onClick={startNewChat}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
+                          onClick={() => cameraRef.current?.click()}
+                          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
                         >
-                          <Eraser size={13} /> Chat baru
+                          <Camera size={14} /> Kamera
                         </button>
                         <button
                           type="button"
-                          onClick={copyConversation}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
+                          onClick={() => photoRef.current?.click()}
+                          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
                         >
-                          <ClipboardCopy size={13} /> Salin percakapan
+                          <ImagePlus size={14} /> Foto
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => fileRef.current?.click()}
+                          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
+                        >
+                          <FileUp size={14} /> File
+                        </button>
+                        <div className="mx-3 my-1 border-t border-slate-200 dark:border-zinc-800" />
+                        <button
+                          type="button"
+                          onClick={() => { setThink((v) => !v); setMenuOpen(false); }}
+                          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
+                        >
+                          <Brain size={14} />
+                          <span className="flex-1 text-left">Berpikir keras</span>
+                          {think && <Check size={14} className="text-violet-500" />}
                         </button>
                       </div>
                     )}
@@ -737,13 +867,9 @@ const Chat = () => {
                     onChange={handleChange}
                     onKeyDown={handleKeyDown}
                     disabled={isLoading}
-                    placeholder={
-                      formData.mode === "image"
-                        ? "describe image you want"
-                        : "ask me anything"
-                    }
+                    placeholder="Tulis pesan..."
                     rows={1}
-                    className="flex-1 bg-transparent text-sm text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-600 outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none overflow-y-auto py-1.5 max-h-[150px]"
+                    className="flex-1 bg-transparent text-sm text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-600 outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none overflow-y-auto py-2 max-h-[150px]"
                   />
 
                   {SpeechRecognition && (
@@ -751,19 +877,28 @@ const Chat = () => {
                       type="button"
                       onClick={toggleMic}
                       title="Voice input (Bahasa Indonesia)"
-                      className={`w-8 h-8 flex items-center justify-center rounded-xl transition-colors shrink-0 ${listening ? "bg-red-500 text-white animate-pulse" : "text-slate-500 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-zinc-800"}`}
+                      className={`w-9 h-9 flex items-center justify-center rounded-xl transition-colors shrink-0 ${listening ? "bg-red-500 text-white animate-pulse" : "text-slate-500 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-zinc-800"}`}
                     >
-                      <Mic size={16} />
+                      <Mic size={18} />
                     </button>
                   )}
 
                   <button
-                    disabled={isLoading || !formData.prompt.trim()}
-                    className="w-8 h-8 flex items-center justify-center rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-30  disabled:cursor-not-allowed shrink-0"
+                    disabled={isLoading || (!formData.prompt.trim() && attachments.length === 0)}
+                    className="w-11 h-11 flex items-center justify-center rounded-xl bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                    aria-label="Kirim"
                   >
-                    <Send size={14} />
+                    <Send size={18} />
                   </button>
                 </form>
+
+                {/* hidden file inputs */}
+                <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden"
+                  onChange={(e) => { handlePickedFiles(e.target.files); e.target.value = ""; }} />
+                <input ref={photoRef} type="file" accept="image/*" multiple className="hidden"
+                  onChange={(e) => { handlePickedFiles(e.target.files); e.target.value = ""; }} />
+                <input ref={fileRef} type="file" accept="image/*,.pdf,application/pdf" multiple className="hidden"
+                  onChange={(e) => { handlePickedFiles(e.target.files); e.target.value = ""; }} />
               </div>
 
               <p className="text-center  text-[10px]  text-slate-400 dark:text-zinc-600">

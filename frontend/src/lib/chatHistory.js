@@ -14,10 +14,30 @@ function readRaw() {
 }
 
 function writeRaw(chats) {
+  const slim = (list) =>
+    list.map((c) => ({
+      ...c,
+      messages: (c.messages || []).map((m) => ({ ...m, thumbs: undefined })),
+    }));
   try {
     localStorage.setItem(KEY, JSON.stringify(chats.slice(0, MAX_CHATS)));
   } catch {
-    // localStorage penuh / tidak tersedia — abaikan diam-diam
+    try {
+      // Kuota penuh: buang thumbnail lampiran, coba lagi
+      localStorage.setItem(KEY, JSON.stringify(slim(chats).slice(0, MAX_CHATS)));
+    } catch {
+      // tetap penuh: buang chat terlama sampai muat
+      const list = slim(chats);
+      while (list.length > 1) {
+        list.pop();
+        try {
+          localStorage.setItem(KEY, JSON.stringify(list));
+          break;
+        } catch {
+          // lanjut buang
+        }
+      }
+    }
   }
   window.dispatchEvent(new Event("sendar:history-changed"));
 }
