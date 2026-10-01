@@ -1,1 +1,1 @@
-{"$schema":"https://openapi.vercel.sh/vercel.json","buildCommand":"VITE_DEMO_MODE=true npm run build","framework":"vite"}
+{"$schema":"https://openapi.vercel.sh/vercel.json","buildCommand":"VITE_DEMO_MODE=true npm run build","framework":"vite","rewrites":[{"destination":"/index.html","source":"/(.*)"}]}
