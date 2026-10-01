@@ -1,5 +1,7 @@
 import Aside from "../components/Aside";
-import { SignIn, useUser, useAuth } from "@clerk/clerk-react";
+import { SignIn } from "@clerk/clerk-react";
+import { useAppUser, useAppAuth, DEMO_MODE } from "../lib/auth";
+import { getDemoReply, getDemoDetection } from "../lib/demo";
 import {
   Brain,
   Check,
@@ -35,13 +37,18 @@ import {
 } from "../lib/attachments";
 
 // ---------------------------------------------------------------------------
-// Sapaan awal pakai nama akun.
+// Sapaan awal: pakai nama akun (mode normal) / sapaan demo (mode demo).
 // ---------------------------------------------------------------------------
 const greetingFor = (name) => ({
   role: "assistant",
   isGreeting: true,
-  content: name ? `Hai ${name}, ada yang bisa dibantu hari ini?` : "Hai, ada yang bisa dibantu hari ini?",
+  content: DEMO_MODE
+    ? "Halo, selamat datang di demo SENDAR! Tanpa login dan tanpa API key — jawabanku diambil dari bank balasan simpanan, dan deteksi AI-nya cuma prediksi ngasal. Silakan coba kirim pesan."
+    : name
+      ? `Hai ${name}, ada yang bisa dibantu hari ini?`
+      : "Hai, ada yang bisa dibantu hari ini?",
   mode: "text",
+  ...(DEMO_MODE ? { demo: true } : {}),
 });
 
 // ---------------------------------------------------------------------------
@@ -156,7 +163,7 @@ function ThinkingBlock({ active, secs, savedText, onDone }) {
 // Mode "Deteksi AI": cek apakah sebuah gambar hasil AI-generated via Sightengine.
 // Kolom chat bersih — hanya empty state / preview / hasil.
 // ---------------------------------------------------------------------------
-function DetectResultCard({ score, onReset }) {
+function DetectResultCard({ score, demo, onReset }) {
   const verdict =
     score >= 70
       ? { label: "Kemungkinan besar AI-generated", cls: "text-red-600 dark:text-red-400", bar: "bg-red-500" }
@@ -165,6 +172,11 @@ function DetectResultCard({ score, onReset }) {
         : { label: "Kemungkinan besar foto asli", cls: "text-green-600 dark:text-green-400", bar: "bg-green-500" };
   return (
     <div className="rounded-3xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 flex flex-col items-center gap-3 text-center">
+      {demo && (
+        <span className="text-[10px] font-bold tracking-widest px-2.5 py-1 rounded-md bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+          DEMO — PREDIKSI NGASAL
+        </span>
+      )}
       <div className="text-5xl font-bold text-slate-900 dark:text-white tabular-nums">
         {score}<span className="text-2xl">%</span>
       </div>
@@ -176,7 +188,9 @@ function DetectResultCard({ score, onReset }) {
       </div>
       <p className={`font-semibold ${verdict.cls}`}>{verdict.label}</p>
       <p className="text-[11px] text-slate-500 dark:text-zinc-500">
-        Hasil estimasi, bukan vonis mutlak.
+        {demo
+          ? "Angka acak untuk keperluan demo — bukan hasil deteksi beneran."
+          : "Hasil estimasi, bukan vonis mutlak."}
       </p>
       <button
         type="button"
@@ -230,7 +244,7 @@ function DetectPanel({
             )}
 
             {result ? (
-              <DetectResultCard score={result.score} onReset={onReset} />
+              <DetectResultCard score={result.score} demo={result.demo} onReset={onReset} />
             ) : (
               <div className="flex gap-2">
                 <button
@@ -452,8 +466,8 @@ const TypingIndicator = ({ model }) => (
 // Halaman Chat
 // ---------------------------------------------------------------------------
 const Chat = () => {
-  const { user } = useUser();
-  const { getToken } = useAuth();
+  const { user } = useAppUser();
+  const { getToken } = useAppAuth();
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const recRef = useRef(null);
@@ -578,6 +592,13 @@ const Chat = () => {
     if (!detectImage || detectLoading) return;
     setDetectLoading(true);
     setDetectError(null);
+    // Mode demo: prediksi ngasal lokal, tanpa Sightengine / API key.
+    if (DEMO_MODE) {
+      await new Promise((r) => setTimeout(r, 900 + Math.random() * 900));
+      setDetectResult(getDemoDetection());
+      setDetectLoading(false);
+      return;
+    }
     try {
       const token = await getToken({ skipCache: true });
       const { data } = await api.post(
@@ -762,6 +783,41 @@ const Chat = () => {
     setIsLoading(true);
 
     try {
+      // Mode demo: tanpa backend & API key — balasan dari bank simpanan lokal.
+      // (finally di bawah tetap jalan walau return di sini.)
+      if (DEMO_MODE) {
+        await new Promise((r) => setTimeout(r, 800 + Math.random() * 1200));
+        const reply = getDemoReply(promptForAi);
+        const secs = ((Date.now() - thinkStart) / 1000).toFixed(1);
+        setMessages((prev) => {
+          const next = currentThink
+            ? prev.map((m, idx) =>
+                idx === aiIdxRef.current
+                  ? {
+                      ...m,
+                      content: reply.text,
+                      demo: true,
+                      model: "demo",
+                      thinking: false,
+                      thinkSecs: secs,
+                    }
+                  : m
+              )
+            : [
+                ...prev,
+                {
+                  role: "assistant",
+                  content: reply.text,
+                  demo: true,
+                  model: "demo",
+                },
+              ];
+          persistCurrentChat(next);
+          return next;
+        });
+        return;
+      }
+
       const token = await getToken({ skipCache: true });
       const headers = {
         Authorization: `Bearer ${token}`,
@@ -968,6 +1024,13 @@ const Chat = () => {
             </div>
           </section>
 
+          {/* banner mode demo */}
+          {DEMO_MODE && (
+            <div className="px-4 py-2 text-center text-[11px] font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-b border-amber-200 dark:border-amber-800 shrink-0">
+              Mode demo — tanpa login & tanpa API key. Balasan dari bank simpanan, deteksi AI cuma prediksi acak.
+            </div>
+          )}
+
           {/* message / mode deteksi AI */}
           {detectMode ? (
             <DetectPanel
@@ -1022,6 +1085,11 @@ const Chat = () => {
                   <div key={i} className="flex flex-col gap-2">
                     {/* header: logo + SENDAR + pill model */}
                     <AiHeader model={message.model} />
+                    {message.demo && (
+                      <span className="w-fit text-[10px] font-bold tracking-widest px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                        DEMO
+                      </span>
+                    )}
 
                     {/* gimmick thinking ala model reasoning lain */}
                     {message.thinkMode && (

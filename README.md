@@ -91,6 +91,42 @@ npm run dev           # buka http://localhost:5173
 - **Riwayat lokal** — tersimpan per browser (localStorage, max 100 chat).
 - **Voice input** — via Web Speech API (Chrome).
 
+## Mode Demo (tanpa login, tanpa API key)
+
+Build dengan `VITE_DEMO_MODE=true` menghasilkan versi demo yang:
+
+- **Tanpa login** — buka app langsung masuk zona chat (Clerk dinonaktifkan).
+- **Tanpa API key AI** — balasan diambil dari bank simpanan lokal
+  (`frontend/src/lib/demo.js`: sapaan, tanya kabar, terima kasih, jam/tanggal,
+  dll. — tambah pola baru cukup edit file itu).
+- **Deteksi AI tanpa API key** — prediksi **acak** 0–100%.
+- **Semua berlabel DEMO** — badge di tiap balasan, kartu hasil deteksi,
+  dan banner di atas chat.
+
+Coba lokal:
+
+```bash
+cd frontend
+VITE_DEMO_MODE=true npm run build
+VITE_DEMO_MODE=true npm run dev   # dev juga bisa, flag dibaca saat start
+```
+
+### Deploy ke Vercel
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fsenshiner%2FAiChatBot)
+
+Repo ini sudah siap deploy apa adanya:
+
+- `vercel.json` di root (import repo root) maupun di `frontend/`
+  (set Root Directory ke `frontend`) otomatis build dengan
+  `VITE_DEMO_MODE=true`.
+- Output 100% statis — **tidak butuh backend, database, atau API key
+  apa pun** di Vercel. Build hanya butuh Node.js 20+.
+- Deploy manual: `npx vercel` dari root repo.
+
+Catatan: karena demo 100% frontend, env `VITE_API_URL` /
+`VITE_CLERK_PUBLISHABLE_KEY` tidak diperlukan di Vercel.
+
 ## Tech Stack
 
 Backend: Express 5 · `@clerk/express` · `helmet` · OpenAI SDK (multi-provider)

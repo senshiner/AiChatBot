@@ -4,10 +4,18 @@ import "./index.css";
 import App from "./App.jsx";
 import { BrowserRouter } from "react-router-dom";
 import { ClerkProvider } from "@clerk/clerk-react";
+import { DEMO_MODE } from "./lib/auth";
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 const root = createRoot(document.getElementById("root"));
 
-if (!PUBLISHABLE_KEY) {
+// Mode demo: tanpa ClerkProvider, tanpa login — langsung masuk zona chat.
+if (DEMO_MODE) {
+  root.render(
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>,
+  );
+} else if (!PUBLISHABLE_KEY) {
   // Avoid throwing so the app doesn't produce a blank page during dev
   // Render an instructive message instead so the developer can fix env
   root.render(
