@@ -1,13 +1,12 @@
 import { ImageIcon, Loader2, LogOut, MessageSquare, Plus, Trash2 } from "lucide-react";
-import { useClerk, useUser, useAuth } from "@clerk/clerk-react";
+import { useAppClerk, useAppUser, DEMO_MODE } from "../lib/auth";
 import ThemeToggle from "./ThemeToggle";
 import { loadChats, deleteChat } from "../lib/chatHistory";
 import { useEffect, useState } from "react";
 
 const Aside = ({ onSelectedChat, open = true, onClose, onNewChat }) => {
-  const { user } = useUser();
-  const { getToken } = useAuth();
-  const { signOut } = useClerk();
+  const { user } = useAppUser();
+  const { signOut } = useAppClerk();
   const [history, setHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -117,15 +116,24 @@ const Aside = ({ onSelectedChat, open = true, onClose, onNewChat }) => {
       <div className="px-3 py-3 border-t border-slate-200 dark:border-zinc-800 flex justify-between items-center">
         {user && (
           <div className="flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-slate-200 dark:hover:bg-zinc-800 transition-colors flex-1 min-w-0">
-            <img src={user.imageUrl} alt="image" className="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-300 dark:border-zinc-700" />
+            {user.imageUrl ? (
+              <img src={user.imageUrl} alt="image" className="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-300 dark:border-zinc-700" />
+            ) : (
+              <div className="w-8 h-8 rounded-full shrink-0 border border-slate-300 dark:border-zinc-700 bg-indigo-600 text-white flex items-center justify-center text-xs font-bold">
+                {(user.firstName || user.fullName || "T").charAt(0).toUpperCase()}
+              </div>
+            )}
             <div className="flex flex-col min-w-0 flex-1">
               <span className="text-xs font-semibold text-slate-900 dark:text-zinc-200 truncate">{user.fullName}</span>
             </div>
-            
+
             <ThemeToggle />
-            <button onClick={signOut} className="p-1.5 rounded-lg text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-400/10 cursor-pointer shrink-0 transition-colors">
-              <LogOut size={14} />
-            </button>
+            {/* Mode demo: tidak ada login, jadi tidak ada tombol logout */}
+            {!DEMO_MODE && (
+              <button onClick={signOut} className="p-1.5 rounded-lg text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-400/10 cursor-pointer shrink-0 transition-colors">
+                <LogOut size={14} />
+              </button>
+            )}
           </div>
         )}
       </div>
