@@ -1,138 +1,99 @@
-# SENDAR — AI Chatbot
+# SENDAR — AI Chatbot (Demo)
 
-Chatbot AI pribadi (Express + React/Vite) dengan login Clerk, multi-provider
-LLM (round-robin + failover otomatis), lampiran gambar/PDF, dan fitur
-**Deteksi AI** (estimasi gambar AI-generated via Sightengine, tanpa makan
-token LLM).
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)
+[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen)](https://sender-chat-nine.vercel.app/)
 
-Repo: `senshiner/AiChatBot` — branch aktif: **`demo`**.
+> 🌿 Branch **`demo`** — versi demo 100% frontend dari
+> [SENDAR AI Chatbot](https://github.com/senshiner/AiChatBot).
+> Untuk versi full (Clerk + multi-provider LLM), lihat branch
+> [`main`](https://github.com/senshiner/AiChatBot/tree/main).
 
-## Struktur
+**[→ Coba demo live](https://sender-chat-nine.vercel.app/)** — langsung masuk
+zona chat, tanpa login dan tanpa API key.
 
-```
-AiChatBot/
-├── frontend/          # React + Vite + Tailwind (UI)
-├── backend/           # Express API (Clerk auth, multi-provider LLM)
-├── .env.example       # template env FRONTEND → salin ke frontend/.env
-└── backend/.env.example  # template env BACKEND → salin ke backend/.env
-```
+## Daftar Isi
 
-## Prasyarat
+- [Tentang Mode Demo](#tentang-mode-demo)
+- [Menjalankan Lokal](#menjalankan-lokal)
+- [Kustomisasi Respons](#kustomisasi-respons)
+- [Deploy ke Vercel](#deploy-ke-vercel)
+- [Struktur Proyek](#struktur-proyek)
+- [Teknologi](#teknologi)
+- [Lisensi](#lisensi)
 
-- Node.js 20+
-- Akun Clerk (untuk login)
-- API key LLM, minimal satu (Groq / Gemini / OpenRouter / Z.AI — gratis)
-- Akun Sightengine gratis (untuk fitur Deteksi AI)
+## Tentang Mode Demo
 
-## Setup
+*Build* dengan `VITE_DEMO_MODE=true` menghasilkan aplikasi yang:
 
-### 1. Clone
+| Aspek | Perilaku demo |
+| --- | --- |
+| 🔓 Login | Dinonaktifkan — pengunjung langsung masuk chat sebagai *Tamu Demo* |
+| 💬 Chat AI | Tanpa API key; balasan dari bank respons lokal (`frontend/src/lib/demo.js`) |
+| 🕵️ Deteksi AI | Tanpa API key; skor probabilitas **acak** 0–100% |
+| 🏷️ Label | Semua berlabel **DEMO** — badge di tiap balasan, kartu hasil deteksi, dan *banner* di atas chat |
+| 💾 Riwayat | Tetap tersimpan lokal di browser |
+
+## Menjalankan Lokal
+
+Prasyarat: Node.js 20+.
 
 ```bash
 git clone -b demo https://github.com/senshiner/AiChatBot.git
-cd AiChatBot
-```
-
-### 2. Backend
-
-```bash
-cd backend
+cd AiChatBot/frontend
 npm install
-cp .env.example .env
-# isi .env (lihat tabel Environment di bawah)
-node server.js        # jalan di http://localhost:3000
+
+# mode demo (direkomendasikan)
+VITE_DEMO_MODE=true npm run dev     # buka http://localhost:5173
+
+# atau build statis
+VITE_DEMO_MODE=true npm run build   # output di frontend/dist
 ```
 
-### 3. Frontend (terminal baru)
+Tanpa flag `VITE_DEMO_MODE`, aplikasi berjalan dalam mode normal
+(butuh Clerk + backend + API key).
 
-```bash
-cd frontend
-npm install
-cp ../.env.example .env
-# isi .env
-npm run dev           # buka http://localhost:5173
-```
+## Kustomisasi Respons
 
-> Kalau backend & frontend beda device (mis. backend di PC, dibuka dari HP):
-> `VITE_API_URL` isi IP LAN PC (mis. `http://192.168.1.10:3000`),
-> `CLIENT_URL` di backend samakan, dan buka port 3000 di firewall.
+Seluruh respons demo terpusat di **`frontend/src/lib/demo.js`** — tambah
+atau ubah pola kata kunci di sana untuk menyesuaikan perilaku bot.
+Abstraksi auth (`frontend/src/lib/auth.js`) memastikan jalur login normal
+tidak tersentuh.
 
-## Environment
-
-**`backend/.env`** (salin dari `backend/.env.example`):
-
-| Key | Wajib | Keterangan |
-|---|---|---|
-| `CLERK_SECRET_KEY` / `CLERK_PUBLISHABLE_KEY` | Ya | Dashboard Clerk tim |
-| `GROQ_API_KEY` / `GEMINI_API_KEY` | Salah satu | Provider LLM utama (gratis). Kosong semua tetap jalan via LLM7 + OmegaTech (keyless, lebih lambat) |
-| `SIGHTENGINE_API_USER` / `SIGHTENGINE_API_SECRET` | Ya (fitur Deteksi AI) | Daftar gratis di sightengine.com |
-| `DATABASE_URL` | Tidak | Riwayat chat server-side; kosong = nonaktif (riwayat lokal browser tetap jalan) |
-| `NINEROUTER_*` | Tidak | 9Router pribadi (priority 1 bila diisi) |
-| `CLIENT_URL` | Ya | URL frontend untuk CORS |
-| `OPENROUTER_API_KEY` / `ZAI_API_KEY` / `LLM7_API_KEY` / `CUSTOM_1..9_*` | Tidak | Provider tambahan, otomatis ikut round-robin |
-
-**`frontend/.env`** (salin dari `.env.example` di root):
-
-| Key | Keterangan |
-|---|---|
-| `VITE_API_URL` | URL backend |
-| `VITE_CLERK_PUBLISHABLE_KEY` | Sama dengan `CLERK_PUBLISHABLE_KEY` backend |
-
-**Jangan commit file `.env` asli!** (sudah di `.gitignore`)
-
-## Fitur
-
-- **Chat multi-provider** — Groq + Gemini default; provider gagal otomatis
-  di-failover, cooldown 5 menit setelah 3x gagal beruntun.
-- **Deteksi AI** — tombol di header; upload gambar → estimasi probabilitas
-  AI-generated via Sightengine (rate limit 10/menit/user).
-- **Lampiran** — gambar (max 4 MB/file, max 4 gambar, auto-resize) & PDF
-  (ekstrak teks max 20 halaman).
-- **Riwayat lokal** — tersimpan per browser (localStorage, max 100 chat).
-- **Voice input** — via Web Speech API (Chrome).
-
-## Mode Demo (tanpa login, tanpa API key)
-
-Build dengan `VITE_DEMO_MODE=true` menghasilkan versi demo yang:
-
-- **Tanpa login** — buka app langsung masuk zona chat (Clerk dinonaktifkan).
-- **Tanpa API key AI** — balasan diambil dari bank simpanan lokal
-  (`frontend/src/lib/demo.js`: sapaan, tanya kabar, terima kasih, jam/tanggal,
-  dll. — tambah pola baru cukup edit file itu).
-- **Deteksi AI tanpa API key** — prediksi **acak** 0–100%.
-- **Semua berlabel DEMO** — badge di tiap balasan, kartu hasil deteksi,
-  dan banner di atas chat.
-
-Coba lokal:
-
-```bash
-cd frontend
-VITE_DEMO_MODE=true npm run build
-VITE_DEMO_MODE=true npm run dev   # dev juga bisa, flag dibaca saat start
-```
-
-### Deploy ke Vercel
+## Deploy ke Vercel
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fsenshiner%2FAiChatBot)
 
-Repo ini sudah siap deploy apa adanya:
+Repo ini siap *deploy* apa adanya:
 
-- `vercel.json` di root (import repo root) maupun di `frontend/`
-  (set Root Directory ke `frontend`) otomatis build dengan
-  `VITE_DEMO_MODE=true`.
-- Output 100% statis — **tidak butuh backend, database, atau API key
-  apa pun** di Vercel. Build hanya butuh Node.js 20+.
-- Deploy manual: `npx vercel` dari root repo.
+1. Import repo → pilih **frontend** sebagai *single project*
+   (*Root Directory* otomatis `frontend`).
+2. **Settings → Environments → Production → Branch Tracking** → isi `demo`
+   (UI Vercel terbaru; butuh minimal satu *deployment* dari branch `demo`
+   terlebih dahulu — *push* apa pun ke branch `demo` memicunya).
+3. *Redeploy* — output 100% statis.
 
-Catatan: karena demo 100% frontend, env `VITE_API_URL` /
-`VITE_CLERK_PUBLISHABLE_KEY` tidak diperlukan di Vercel.
+Tidak butuh *environment variable*, backend, database, atau API key apa pun
+di Vercel — `vercel.json` (di root maupun `frontend/`) otomatis *build*
+dengan `VITE_DEMO_MODE=true`. Termasuk *SPA rewrite* agar *refresh* di rute
+`/chat` tidak 404.
 
-## Tech Stack
+## Struktur Proyek
 
-Backend: Express 5 · `@clerk/express` · `helmet` · OpenAI SDK (multi-provider)
-· Neon Postgres (opsional) · Sightengine API.
-Frontend: React 19 · Vite · Tailwind 4 · `react-markdown` · pdfjs · Clerk.
+```
+AiChatBot/
+├── frontend/              # React + Vite + Tailwind (seluruh demo)
+│   ├── src/lib/demo.js    # Bank respons & logika mode demo
+│   ├── src/lib/auth.js    # Abstraksi auth (Clerk / mode demo)
+│   └── vercel.json        # Konfig build demo
+├── backend/               # Tidak dipakai dalam mode demo
+└── vercel.json            # Konfig build demo (import dari root repo)
+```
 
-## License
+## Teknologi
+
+React 19 · Vite · Tailwind CSS 4 · `react-markdown` · pdfjs
+
+## Lisensi
 
 MIT
