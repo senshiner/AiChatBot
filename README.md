@@ -7,6 +7,14 @@ token LLM).
 
 Repo: `senshiner/AiChatBot`.
 
+## Demo
+
+Coba langsung tanpa install: **https://sender-chat-nine.vercel.app/**
+
+> Demo berjalan 100% di frontend (tanpa login, tanpa backend, tanpa API key).
+> Jawaban chat berasal dari bank respons lokal dan skor Deteksi AI diacak —
+> semuanya diberi label DEMO.
+
 ## Struktur
 
 ```
