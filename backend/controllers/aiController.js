@@ -78,7 +78,7 @@ export const detectAiImage = async (req, res) => {
 export const generateAi = async (req, res) => {
   try {
     const userId = req.userId;
-    const { prompt, images, think } = req.body;
+    const { prompt, images, think, history } = req.body;
 
     // validation
     if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
@@ -97,9 +97,25 @@ export const generateAi = async (req, res) => {
       return res.status(400).json({ success: false, message: "invalid image data" });
     }
 
+    // Riwayat chat dari frontend (opsional). Disanitasi di sini agar provider
+    // hanya menerima {role, content} teks yang valid — cegah token bloat.
+    const cleanHistory = Array.isArray(history)
+      ? history
+          .filter(
+            (h) =>
+              h &&
+              (h.role === "user" || h.role === "assistant") &&
+              typeof h.content === "string" &&
+              h.content.trim()
+          )
+          .slice(-20)
+          .map((h) => ({ role: h.role, content: h.content.slice(0, 2000) }))
+      : [];
+
     const meta = await generateTextWithMeta(userId, prompt, {
       images: imageList.length > 0 ? imageList : undefined,
       think: think === true,
+      history: cleanHistory,
     });
 
     saveMessage(userId, prompt, meta.text);

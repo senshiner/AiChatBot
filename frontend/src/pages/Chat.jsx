@@ -719,6 +719,19 @@ const Chat = () => {
           : currentPrompt.slice(0, MAX_PROMPT)
         : promptForAi0;
     const imageDataUrls = currentAttachments.filter((a) => a.kind === "image").map((a) => a.dataUrl);
+    // Riwayat chat untuk konteks AI: N pesan terakhir, teks saja.
+    // (messages di closure = state sebelum submit ini → pas sebagai history.)
+    const historyForAi = messages
+      .filter(
+        (m) =>
+          (m.role === "user" || m.role === "assistant") &&
+          !m.isGreeting &&
+          !m.thinking &&
+          typeof m.content === "string" &&
+          m.content.trim()
+      )
+      .slice(-20)
+      .map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
     // Gimmick: "berpikir keras" hanya UI thinking, model tetap normal (hemat token).
     // Backend tidak lagi menerima flag think → tidak pakai reasoning model 120b.
     const kind = imageDataUrls.length > 0 ? "vision" : "text";
@@ -788,6 +801,7 @@ const Chat = () => {
         {
           prompt: promptForAi,
           images: imageDataUrls,
+          history: historyForAi,
         },
         { headers }
       );

@@ -52,7 +52,7 @@ const saveSession = (userId, providerName, session) => {
   sessions.set(`${userId}:${providerName}`, session);
 };
 
-const callOpenAiCompatible = async (provider, prompt, images) => {
+const callOpenAiCompatible = async (provider, prompt, images, history) => {
   const client = new OpenAI({
     apiKey: provider.apiKey || "unused",
     baseURL: provider.baseURL,
@@ -66,9 +66,11 @@ const callOpenAiCompatible = async (provider, prompt, images) => {
           ...images.map((url) => ({ type: "image_url", image_url: { url } })),
         ]
       : prompt;
+  // Riwayat chat (sudah disanitasi controller): teks saja, tanpa gambar.
+  const historyMsgs = Array.isArray(history) ? history : [];
   const response = await client.chat.completions.create({
     model: provider.model,
-    messages: [{ role: "user", content }],
+    messages: [...historyMsgs, { role: "user", content }],
   });
 
   const result = response?.choices?.[0]?.message?.content;
@@ -103,7 +105,7 @@ const callRestProvider = async (provider, providerName, userId, prompt) => {
 
 const callProvider = (provider, providerName, userId, prompt, opts = {}) => {
   if (provider.type === "openai-compatible") {
-    return callOpenAiCompatible(provider, prompt, opts.images);
+    return callOpenAiCompatible(provider, prompt, opts.images, opts.history);
   }
   if (provider.type === "rest") {
     return callRestProvider(provider, providerName, userId, prompt);
