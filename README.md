@@ -71,7 +71,7 @@ node server.js         # berjalan di http://localhost:3000
 ```bash
 cd frontend
 npm install
-cp ../.env.example .env   # lalu isi .env
+cp .env.example .env   # lalu isi .env
 npm run dev               # buka http://localhost:5173
 ```
 
@@ -92,7 +92,7 @@ npm run dev               # buka http://localhost:5173
 | `CLIENT_URL` | Ya | URL frontend untuk CORS |
 | `OPENROUTER_API_KEY` / `ZAI_API_KEY` / `LLM7_API_KEY` / `CUSTOM_1..9_*` | Tidak | Provider tambahan, otomatis ikut *round-robin* |
 
-**`frontend/.env`** (salin dari `.env.example` di root):
+**`frontend/.env`** (salin dari `frontend/.env.example`):
 
 | Key | Keterangan |
 | --- | --- |
@@ -107,7 +107,7 @@ npm run dev               # buka http://localhost:5173
 AiChatBot/
 ├── frontend/              # React + Vite + Tailwind (UI)
 ├── backend/               # Express API (Clerk auth, multi-provider LLM)
-├── .env.example           # Template env frontend → salin ke frontend/.env
+├── frontend/.env.example   # Template env frontend → salin ke frontend/.env
 └── backend/.env.example   # Template env backend → salin ke backend/.env
 ```
 
