@@ -10,9 +10,9 @@ const Hero = () => {
             <span>Chat with our AI now</span>
           </div>
 
-          <h1 className="text-center text-4xl leading-[68px] md:text-5xl md:leading-[70px] mt-4 font-semibold max-w-2xl text-slate-900 dark:text-white">Go Faster Then EveryOne</h1>
+          <h1 className="text-center text-4xl leading-[68px] md:text-5xl md:leading-[70px] mt-4 font-semibold max-w-2xl text-slate-900 dark:text-white">Go Faster Than Everyone</h1>
 
-          <p className="text-center text-base max-w-lg mt-2 text-slate-600 dark:text-slate-300">Create Everyting With ChatBot Sendar</p>
+          <p className="text-center text-base max-w-lg mt-2 text-slate-600 dark:text-slate-300">Create Everything With ChatBot Sendar</p>
 
           <div className="mt-8">
             <NavLink to="/chat" className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95 transition  px-7 h-11 rounded-full">
