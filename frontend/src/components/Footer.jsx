@@ -38,7 +38,7 @@ const Footer = () => {
       </div>
       <div className="">
         <div className="max-w-7xl mx-auto px-6 py-6 text-center text-sm font-normal text-slate-600 dark:text-slate-400">
-          <a href="">SENDAR</a> ©2026. All rights reserved.
+          <a href="https://github.com/senshiner/AiChatBot" target="_blank" rel="noreferrer">SENDAR</a> ©2026. All rights reserved.
         </div>
       </div>
     </footer>
